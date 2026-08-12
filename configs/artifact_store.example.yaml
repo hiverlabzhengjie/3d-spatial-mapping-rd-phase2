@@ -1,0 +1,11 @@
+# Versioned, non-secret policy. Copy the root path to the untracked local .env.
+artifact_root: "D:\\3D-Spatial-Mapping-Phase2"
+required_directories:
+  - model_weights
+  - captures
+  - cache
+  - runs
+  - exports
+
+# Windows root above maps to /mnt/x/3D-Spatial-Mapping-Phase2 in WSL2.
+

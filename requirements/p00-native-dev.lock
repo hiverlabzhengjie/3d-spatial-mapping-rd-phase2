@@ -1,0 +1,16 @@
+# Generated in the isolated native Windows CPython 3.11.4 candidate on 2026-08-12.
+# This lock covers P00 development checks only. DA3/model dependencies are locked separately.
+colorama==0.4.6
+coverage==7.15.4
+iniconfig==2.3.0
+mypy==1.15.0
+mypy_extensions==1.1.0
+packaging==26.3
+pip==24.0
+pluggy==1.6.0
+pytest==8.3.5
+pytest-cov==6.0.0
+ruff==0.11.13
+setuptools==65.5.0
+typing_extensions==4.16.0
+wheel==0.48.0

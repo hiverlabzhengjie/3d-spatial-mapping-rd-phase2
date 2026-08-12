@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "required_python": "3.11.4",
+  "required_checkpoint": "DA3NESTED-GIANT-LARGE-1.1",
+  "candidates": [
+    {
+      "id": "native-windows-py311",
+      "platform": "Windows 10",
+      "base_python_executable": "C:\\Python311\\python.exe",
+      "python_executable": "D:\\3D-Spatial-Mapping-Phase2\\cache\\runtime_envs\\native-windows-cpython311\\Scripts\\python.exe",
+      "environment_root": "D:\\3D-Spatial-Mapping-Phase2\\cache\\runtime_envs\\native-windows-cpython311",
+      "artifact_root": "D:\\3D-Spatial-Mapping-Phase2",
+      "status": "selected_for_wp5",
+      "selection_reason": "Owner-selected after faster matched exact-checkpoint smoke; subject to remaining P00 gates."
+    },
+    {
+      "id": "wsl2-ubuntu-py311",
+      "platform": "Ubuntu 24.04 on WSL2",
+      "python_executable": "~/.local/share/spatial-mapping-phase2/p00-wsl-py311/bin/python",
+      "environment_root": "~/.local/share/spatial-mapping-phase2/p00-wsl-py311",
+      "artifact_root": "/mnt/x/3D-Spatial-Mapping-Phase2",
+      "status": "verified_noncanonical",
+      "selection_reason": "Retained comparative evidence; native Windows is selected for continued P00 work."
+    }
+  ]
+}
+

@@ -1,0 +1,64 @@
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+dist/
+build/
+*.egg-info/
+
+# Editors and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Scratch and generated artifacts
+tmp/
+outputs/
+runs/
+cache/
+models/
+weights/
+*.rrd
+*.npz
+*.npy
+*.ply
+*.pcd
+*.glb
+*.las
+*.laz
+*.mp4
+*.mkv
+*.avi
+*.mov
+
+# Client inputs remain local; retain only their policy README
+raw_physical_input_by_client/*
+!raw_physical_input_by_client/README.md
+
+# Large data/artifact directories retain only policy READMEs and manifests
+data/*
+!data/README.md
+!data/**/*.json
+!data/**/*.yaml
+!data/**/*.yml
+artifacts/*
+!artifacts/README.md
+!artifacts/**/*.json
+!artifacts/**/*.yaml
+!artifacts/**/*.yml
+
+

@@ -1,0 +1,18 @@
+# P00 direct supporting-stack selections for the isolated native Windows runtime.
+#
+# These pins preserve the DA3-tested NumPy/Torch environment. The complete 146-line resolved
+# runtime freeze is retained with the WP8 smoke run and identified in WP8_SUPPORTING_STACK_RESULT.
+# GeoCalib must be installed from source commit 97b8968e7798a66bf04fcf791fb535624241bda7 with
+# dependencies resolved by these pins; do not let its unconstrained requirements upgrade Kornia.
+
+numpy==1.26.4
+scipy==1.17.1
+opencv-python==4.11.0.86
+fastapi==0.141.1
+uvicorn==0.52.1
+open3d==0.19.0
+rerun-sdk==0.22.1
+av==18.0.0
+pillow-heif==1.5.0
+pre-commit==4.6.2
+kornia==0.7.4
