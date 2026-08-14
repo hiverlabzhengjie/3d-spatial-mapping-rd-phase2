@@ -1,0 +1,47 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width">
+  <title>P03 Live Capture</title>
+  <style>
+    body{font:15px system-ui;background:#10151c;color:#e8eef5;margin:0;padding:24px}
+    main{max-width:1100px;margin:auto}.muted{color:#9fb0c2}
+    .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin:20px 0}
+    .card{background:#19222d;border:1px solid #334354;border-radius:10px;padding:14px}
+    .card img{width:100%;aspect-ratio:16/9;object-fit:cover;margin-top:10px;background:#0b0f14}
+    .card img:not([src]){display:none}
+    .healthy{border-color:#3a9d6e}.failed{border-color:#c85454}
+    button,input{font:inherit;padding:9px;border-radius:7px;border:1px solid #526579;background:#17202a;color:#fff}
+    button{cursor:pointer;background:#2869a8}pre{white-space:pre-wrap;background:#0b0f14;padding:14px;border-radius:8px;max-height:350px;overflow:auto}
+  </style>
+</head>
+<body><main>
+  <h1>Live capture</h1>
+  <div class="muted">Credential-safe health, bounded capture, cached sessions, actual skew and explicit degraded states.</div>
+  <div id="cameras" class="grid"></div>
+  <button onclick="health()">Refresh health</button>
+  <input id="sid" placeholder="session-id"><button onclick="captureNow()">Capture 2 seconds</button>
+  <button onclick="sessions()">Browse sessions</button>
+  <div>
+    <input id="bundle-session" placeholder="source session-id">
+    <input id="bundle-id" placeholder="bundle-id" value="selected-console">
+    <button onclick="selectBundle()">Select bundle and show skew</button>
+  </div>
+  <div>
+    <input id="temporal-bundle-id" placeholder="temporal bundle-id">
+    <input id="max-skew-ms" type="number" min="0.001" step="0.001" placeholder="maximum skew ms">
+    <button onclick="temporalCapture()">Capture time-gated bundle</button>
+  </div>
+  <pre id="out">Ready.</pre>
+  <script>
+    const out=document.getElementById('out'), cameras=document.getElementById('cameras');
+    async function api(path,options){const r=await fetch(path,options),j=await r.json();if(!r.ok)throw Error(j.detail||'request failed');return j}
+    async function health(){try{const x=await api('/api/health');cameras.innerHTML=Object.entries(x).map(([id,v])=>`<div class="card ${v.state}"><b>${id}</b><div>${v.state}</div><div>${v.profile?v.profile.codec+' '+v.profile.width_pixels+'×'+v.profile.height_pixels:v.failure_class}</div><button onclick="preview('${id}')">Preview</button><img id="preview-${id}" alt="Ephemeral preview for ${id}"></div>`).join('')}catch(e){out.textContent=e}}
+    async function preview(id){const image=document.getElementById('preview-'+id);image.src='/api/cameras/'+id+'/preview?nonce='+Date.now()}
+    async function captureNow(){try{out.textContent='Capturing…';const body=JSON.stringify({session_id:document.getElementById('sid').value,duration_seconds:2});out.textContent=JSON.stringify(await api('/api/capture',{method:'POST',headers:{'content-type':'application/json'},body}),null,2)}catch(e){out.textContent=e}}
+    async function sessions(){try{const listing=await api('/api/sessions'),rows=[];for(const id of listing.sessions){const s=await api('/api/sessions/'+id);rows.push({session_id:id,results:s.results.map(r=>({camera_id:r.camera_id,status:r.status,storage_mode:r.artifact&&r.artifact.storage_mode,failure_class:r.failure_class}))})}out.textContent=JSON.stringify({sessions:rows},null,2)}catch(e){out.textContent=e}}
+    async function selectBundle(){try{const sid=document.getElementById('bundle-session').value,bid=document.getElementById('bundle-id').value;out.textContent=JSON.stringify(await api('/api/sessions/'+sid+'/bundles',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({bundle_id:bid})}),null,2)}catch(e){out.textContent=e}}
+    async function temporalCapture(){try{out.textContent='Warming four live streams…';const bundle_id=document.getElementById('temporal-bundle-id').value,max_skew_ms=Number(document.getElementById('max-skew-ms').value);out.textContent=JSON.stringify(await api('/api/temporal-capture',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({bundle_id,max_skew_ms,warmup_seconds:15})}),null,2)}catch(e){out.textContent=e}}
+    health();
+  </script>
+</main></body></html>

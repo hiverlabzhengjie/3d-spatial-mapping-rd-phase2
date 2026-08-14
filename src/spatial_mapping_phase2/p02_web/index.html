@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Facility Registration Console</title>
+  <link rel="stylesheet" href="/assets/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <p class="eyebrow">PHASE 2 · P02</p>
+      <h1>Facility Registration Console</h1>
+    </div>
+    <div class="topbar-actions">
+      <span id="saveStatus" class="save-status">Not loaded</span>
+      <button id="saveButton" class="button secondary" disabled>Save revision</button>
+      <button id="exportButton" class="button primary" disabled>Export snapshot</button>
+    </div>
+  </header>
+
+  <main>
+    <section id="uploadView" class="upload-view">
+      <div class="upload-card">
+        <span class="step-number">01</span>
+        <p class="eyebrow">ENVIRONMENT INITIALIZATION</p>
+        <h2>Upload the drawn-to-scale floor plan</h2>
+        <p>The PDF stays on this computer. Page 1 is rendered for interaction and hash-bound to every saved revision.</p>
+        <label class="file-drop" for="planFile">
+          <span>Choose a floor-plan PDF</span>
+          <small>Maximum 50 MiB · PDF only</small>
+        </label>
+        <input id="planFile" type="file" accept="application/pdf,.pdf" hidden>
+        <p id="uploadMessage" class="message" role="status"></p>
+      </div>
+    </section>
+
+    <section id="workspaceView" class="workspace" hidden>
+      <aside class="panel setup-panel">
+        <div class="panel-heading">
+          <p class="eyebrow">FACILITY SETUP</p>
+          <h2>Plan & frame</h2>
+        </div>
+
+        <section class="setup-step">
+          <div class="step-title"><span>1</span><h3>Scale controls</h3></div>
+          <p>Draw between two known endpoints, then enter the real distance. One control enables provisional XY; more controls expose scan-scale disagreement.</p>
+          <div class="field-grid">
+            <label>Control ID<input id="scaleId" value="top-dimension"></label>
+            <label>Distance (m)<input id="scaleDistance" type="number" min="0.001" step="0.001" placeholder="4.498"></label>
+          </div>
+          <label>Meaning<input id="scaleMeaning" value="printed dimension between permanent endpoints"></label>
+          <div class="field-grid">
+            <label>Uncertainty (m)<input id="scaleUncertainty" type="number" min="0" step="0.001" placeholder="e.g. 0.020"></label>
+            <label>Source<select id="scaleSource"><option value="printed-dimension">Printed dimension</option><option value="physical-check">Physical check</option></select></label>
+          </div>
+          <button id="drawScaleButton" class="button tool">Draw scale line</button>
+          <div id="scaleList" class="compact-list"></div>
+          <div id="scaleSummary" class="metric-box muted">No metric scale yet</div>
+        </section>
+
+        <section class="setup-step">
+          <div class="step-title"><span>2</span><h3>Origin & axes</h3></div>
+          <label>Origin feature meaning<input id="originMeaning" value="exact user-selected permanent floor-plan feature"></label>
+          <div class="button-row">
+            <button id="placeOriginButton" class="button tool">Place origin</button>
+            <button id="setXAxisButton" class="button tool">Set +X direction</button>
+          </div>
+          <button id="resetOriginButton" class="text-button">Reposition origin (keeps revision history)</button>
+          <div class="axis-legend">
+            <span><i class="axis-x"></i>+X chosen by you</span>
+            <span><i class="axis-y"></i>+Y derived right-handed</span>
+            <span>+Z upward · floor Z=0</span>
+          </div>
+        </section>
+
+        <section class="setup-step source-card">
+          <p class="eyebrow">SOURCE</p>
+          <strong id="planFilename"></strong>
+          <code id="planHash"></code>
+          <label class="replace-plan" for="replacePlanFile">Replace source PDF</label>
+          <input id="replacePlanFile" type="file" accept="application/pdf,.pdf" hidden>
+        </section>
+      </aside>
+
+      <section class="plan-column">
+        <div class="plan-toolbar">
+          <div>
+            <strong id="interactionTitle">Inspect plan</strong>
+            <span id="interactionHint">Choose a tool, then click or drag on the plan.</span>
+          </div>
+          <div class="zoom-controls">
+            <button id="zoomOutButton" aria-label="Zoom out">−</button>
+            <span id="zoomValue">100%</span>
+            <button id="zoomInButton" aria-label="Zoom in">+</button>
+            <button id="zoomFitButton">Fit</button>
+          </div>
+        </div>
+        <div id="planViewport" class="plan-viewport">
+          <div id="planScene" class="plan-scene">
+            <img id="planImage" alt="Uploaded office floor plan" draggable="false">
+            <svg id="planOverlay" aria-label="Interactive plan registration overlay"></svg>
+          </div>
+        </div>
+        <div class="plan-footer">
+          <span id="cursorReadout">Pixel — · World —</span>
+          <span>Camera dots are mounting references, not calibrated optical centres.</span>
+        </div>
+      </section>
+
+      <aside class="panel camera-panel">
+        <div class="panel-heading">
+          <p class="eyebrow">CAMERA REGISTRATION</p>
+          <h2>Mounting priors</h2>
+        </div>
+        <div id="cameraTabs" class="camera-tabs"></div>
+        <div id="cameraForm" class="camera-form">
+          <div class="camera-status-line">
+            <span id="selectedCameraDot" class="camera-dot"></span>
+            <div><strong id="selectedCameraTitle"></strong><span id="cameraStatus" class="status-chip"></span></div>
+          </div>
+          <label>Physical label<input id="cameraLabel" placeholder="Required unique label"></label>
+          <label>Mounting reference meaning<input id="cameraReference" placeholder="e.g. camera bracket centre on pillar face"></label>
+          <div class="field-grid">
+            <label>Height Z (m)<input id="cameraHeight" type="number" min="0.01" step="0.01"></label>
+            <label>Uncertainty (m)<input id="cameraHeightUncertainty" type="number" min="0" step="0.01" value="0.10"></label>
+          </div>
+          <div class="button-row">
+            <button id="placeCameraButton" class="button tool">Place / move dot</button>
+            <button id="setPanButton" class="button tool">Draw rough pan</button>
+          </div>
+          <div id="cameraCoordinates" class="metric-box">XY not available</div>
+          <div class="secret-box">
+            <div><strong>RTSP endpoint</strong><span id="endpointStatus">Not configured</span></div>
+            <p>Saved only in the ignored local secret file. It never enters registration JSON or exports.</p>
+            <input id="rtspUrl" type="text" autocomplete="off" spellcheck="false" placeholder="rtsp://…">
+            <button id="saveEndpointButton" class="button secondary">Save endpoint locally</button>
+          </div>
+          <p class="boundary-note"><strong>Boundary:</strong> this step records an estimated mounting XYZ and display-only pan. Optical-centre calibration and pose solving happen later.</p>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script src="/assets/app.js" defer></script>
+</body>
+</html>

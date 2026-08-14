@@ -8,7 +8,11 @@ version = "0.1.0"
 description = "Low-touch, facility-coordinate DA3 reconstruction from fixed CCTV cameras"
 readme = "README.md"
 requires-python = ">=3.11,<3.12"
-dependencies = []
+dependencies = [
+    "fastapi>=0.141,<1",
+    "pymupdf>=1.24,<2",
+    "uvicorn>=0.52,<1",
+]
 
 [dependency-groups]
 dev = [
@@ -38,4 +42,3 @@ python_version = "3.11"
 strict = true
 mypy_path = ["src"]
 packages = ["spatial_mapping_phase2"]
-

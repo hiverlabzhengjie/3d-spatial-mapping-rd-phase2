@@ -38,6 +38,24 @@ remain summarized without publishing client imagery or site-specific annotations
 
 See [the sanitized P01 summary](docs/stages/P01/PUBLIC_SUMMARY.md).
 
+### P02 - Facility-frame registration foundation
+
+P02 added a reusable interactive workflow for mapping a scanned plan into a right-handed metric
+facility frame and placing provisional camera mounting references. The private pilot result is
+partially accepted because one scale control cannot quantify scan distortion or horizontal
+uncertainty. It establishes neither optical camera poses nor XYZ accuracy.
+
+See [the sanitized P02 summary](docs/stages/P02/PUBLIC_SUMMARY.md).
+
+### P03 - Live capture and temporal-gating foundation
+
+P03 established credential-safe, reconnect-aware capture; immutable session and artifact
+identities; explicit fallback/failure states; deterministic bundle selection; and equivalent CLI
+and localhost operations. Its revision adds warm-frame temporal gating in the host-acquisition
+clock domain. Complete camera membership is not a synchronization claim.
+
+See [the sanitized P03 summary](docs/stages/P03/PUBLIC_SUMMARY.md).
+
 ## Repository layout
 
 | Location | Purpose |
@@ -51,12 +69,12 @@ See [the sanitized P01 summary](docs/stages/P01/PUBLIC_SUMMARY.md).
 
 ## Validation
 
-The P01 snapshot passed:
+The P02/P03 snapshot passed:
 
 ```text
-56 tests passed
+98 tests passed
 Ruff passed
-strict mypy passed for 16 source files
+strict mypy passed for 34 source files
 ```
 
 Model weights, raw outputs, client media, floor-plan derivatives, RTSP credentials, endpoint

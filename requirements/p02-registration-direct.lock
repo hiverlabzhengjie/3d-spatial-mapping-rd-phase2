@@ -1,0 +1,6 @@
+# P02 direct localhost registration-console dependencies.
+# FastAPI/Uvicorn reuse the P00-validated supporting stack; PyMuPDF renders page 1 locally.
+
+fastapi==0.141.1
+uvicorn==0.52.1
+pymupdf==1.24.1
