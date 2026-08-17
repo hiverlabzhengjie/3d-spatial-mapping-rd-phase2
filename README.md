@@ -56,6 +56,17 @@ clock domain. Complete camera membership is not a synchronization claim.
 
 See [the sanitized P03 summary](docs/stages/P03/PUBLIC_SUMMARY.md).
 
+### P04 - Calibration and registration pilot
+
+P04 added the reusable calibration and world-registration workflow: linked image/facility
+annotation, multi-model intrinsic comparison, explicit PnP/RANSAC and robust refinement, held-out
+validation, physical diagnostics, fleet-prior analysis and solver-envelope construction.
+
+The pilot is partially accepted for coarse registration only. It does not establish full XYZ
+accuracy, universal fleet intrinsics, tight camera fusion or accepted geometry.
+
+See [the sanitized P04 summary](docs/stages/P04/PUBLIC_SUMMARY.md).
+
 ## Repository layout
 
 | Location | Purpose |
@@ -69,12 +80,12 @@ See [the sanitized P03 summary](docs/stages/P03/PUBLIC_SUMMARY.md).
 
 ## Validation
 
-The P02/P03 snapshot passed:
+The P04 snapshot passed:
 
 ```text
-98 tests passed
+126 tests passed
 Ruff passed
-strict mypy passed for 34 source files
+strict mypy passed for 47 source and test files
 ```
 
 Model weights, raw outputs, client media, floor-plan derivatives, RTSP credentials, endpoint

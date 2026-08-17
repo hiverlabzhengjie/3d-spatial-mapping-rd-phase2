@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>P04 Calibration Correspondence Console</title>
+  <link rel="stylesheet" href="/assets/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <p class="eyebrow">PHASE 2 · P04 · CAMERA 3 PILOT</p>
+      <h1>Calibration correspondence console</h1>
+      <p class="subtitle">Link one exact camera pixel to the same physical point in facility XYZ.</p>
+    </div>
+    <div class="top-actions">
+      <span id="revisionBadge" class="badge">Loading</span>
+      <button id="exportButton" class="button primary">Export linked points</button>
+    </div>
+  </header>
+
+  <main>
+    <section id="notReady" class="empty-state" hidden>
+      <h2>Workspace not initialized</h2>
+      <p>Initialize this local workspace from the selected P02 revision-3 export and its rendered plan.</p>
+    </section>
+
+    <section id="workspace" hidden>
+      <div class="summary-strip">
+        <div><span>Pilot</span><strong id="cameraId">office-cam-03</strong></div>
+        <div><span>Approved frame</span><strong id="approvedFrame">None</strong></div>
+        <div><span>Solve points</span><strong id="solveCount">0</strong></div>
+        <div><span>Held-out points</span><strong id="heldOutCount">0</strong></div>
+        <p>XY remains the provisional P02 single-control reference. Optional uncertainty fields do not block this pilot workflow.</p>
+      </div>
+
+      <section class="frame-review card">
+        <div class="section-title">
+          <div><p class="eyebrow">STEP 1</p><h2>Review calibration frames</h2></div>
+          <button id="toggleImportButton" class="button secondary">Add local frame</button>
+        </div>
+        <div class="capture-panel">
+          <div>
+            <strong>Capture a fresh Camera 3 candidate</strong>
+            <p>Start the countdown when the scene is ready. The captured frame is stored immutably, previewed, then approved or recaptured by you.</p>
+          </div>
+          <label>Countdown
+            <select id="captureDelay">
+              <option value="0">Now</option>
+              <option value="3" selected>3 seconds</option>
+              <option value="5">5 seconds</option>
+              <option value="10">10 seconds</option>
+            </select>
+          </label>
+          <button id="captureButton" class="button primary">Start timed capture</button>
+          <span id="captureStatus" class="capture-status">Ready</span>
+        </div>
+        <form id="importForm" class="import-form" hidden>
+          <label>Local image path<input id="sourcePath" placeholder="D:\...\office-cam-03.jpg" required></label>
+          <label>Immutable frame ID<input id="newFrameId" placeholder="cam03-quiet-001" pattern="[a-z][a-z0-9-]*" required></label>
+          <label>Profile version<input id="profileVersion" value="stream-profile-v1" required></label>
+          <label>Expected SHA-256 (optional)<input id="expectedSha" placeholder="64 lowercase hex characters"></label>
+          <button class="button primary" type="submit">Import candidate</button>
+        </form>
+        <div id="frameCards" class="frame-cards"></div>
+      </section>
+
+      <section class="linked-workspace">
+        <article class="image-panel card">
+          <div class="section-title compact">
+            <div><p class="eyebrow">STEP 2A</p><h2>Approved camera frame</h2></div>
+            <span id="imagePointReadout" class="coordinate-chip">u — · v —</span>
+          </div>
+          <p class="hint">Choose “Pick image pixel”, then click the exact permanent feature.</p>
+          <div class="pane-tools">
+            <button id="pickImageButton" class="button tool">Pick image pixel (u, v)</button>
+            <div class="zoom-controls">
+              <button id="frameZoomOut" type="button" aria-label="Zoom camera frame out">−</button>
+              <span id="frameZoomValue">100%</span>
+              <button id="frameZoomIn" type="button" aria-label="Zoom camera frame in">+</button>
+              <button id="frameZoomFit" type="button">Fit</button>
+            </div>
+          </div>
+          <div id="frameViewport" class="image-viewport">
+            <div id="frameScene" class="image-scene">
+              <img id="frameImage" alt="Approved Camera 3 calibration frame" draggable="false">
+              <svg id="frameOverlay" aria-label="Camera-frame landmark overlay"></svg>
+            </div>
+            <p id="noApprovedFrame" class="viewport-message">Approve a primary frame to begin.</p>
+          </div>
+        </article>
+
+        <article class="image-panel card">
+          <div class="section-title compact">
+            <div><p class="eyebrow">STEP 2B</p><h2>Facility plan XY</h2></div>
+            <span id="worldXYReadout" class="coordinate-chip">X — · Y —</span>
+          </div>
+          <p class="hint">Pick the plan location for the same physical point. XY is calculated automatically.</p>
+          <div class="pane-tools">
+            <button id="pickPlanButton" class="button tool">Pick plan point (X, Y)</button>
+            <div class="zoom-controls">
+              <button id="planZoomOut" type="button" aria-label="Zoom floor plan out">−</button>
+              <span id="planZoomValue">100%</span>
+              <button id="planZoomIn" type="button" aria-label="Zoom floor plan in">+</button>
+              <button id="planZoomFit" type="button">Fit</button>
+            </div>
+          </div>
+          <div id="planViewport" class="image-viewport plan">
+            <div id="planScene" class="image-scene">
+              <img id="planImage" alt="P02 rendered facility plan" draggable="false">
+              <svg id="planOverlay" aria-label="Facility-plan landmark overlay"></svg>
+            </div>
+          </div>
+        </article>
+      </section>
+
+      <section class="landmark-editor card">
+        <div class="section-title">
+          <div><p class="eyebrow">STEP 2C</p><h2>Complete the physical XYZ point</h2></div>
+          <span id="draftState" class="badge neutral">Waiting for two clicks</span>
+        </div>
+        <form id="landmarkForm" class="landmark-form">
+          <label>Landmark ID<input id="landmarkId" placeholder="door-north-top" pattern="[a-z][a-z0-9-]*" required></label>
+          <label>Name<input id="landmarkName" placeholder="Meeting-room door north top corner" required></label>
+          <label class="wide">Physical meaning<input id="physicalMeaning" placeholder="Exact upper corner of the fixed north door jamb" required></label>
+          <label>Height Z (m)<input id="zMetres" type="number" min="0" step="0.001" required></label>
+          <label>Z source (optional)<input id="zSource" placeholder="Tape from finished floor"></label>
+          <label>Z uncertainty (optional, m)<input id="zUncertainty" type="number" min="0" step="0.001"></label>
+          <label>Role<select id="landmarkRole"><option value="solve">Solve</option><option value="held-out">Held-out validation</option></select></label>
+          <button id="saveLandmarkButton" class="button primary" type="submit">Save linked correspondence</button>
+        </form>
+      </section>
+
+      <section class="card landmarks-section">
+        <div class="section-title"><div><p class="eyebrow">STEP 3</p><h2>Saved linked correspondences</h2></div></div>
+        <div id="landmarkTable" class="landmark-table"></div>
+      </section>
+    </section>
+  </main>
+  <div id="previewModal" class="modal" hidden>
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="previewTitle">
+      <div class="section-title">
+        <div><p class="eyebrow">CANDIDATE PREVIEW</p><h2 id="previewTitle">Calibration frame</h2></div>
+        <button id="closePreviewButton" class="button secondary">Close</button>
+      </div>
+      <img id="previewImage" alt="Full candidate calibration frame preview">
+      <p id="previewDetails" class="preview-details"></p>
+    </div>
+  </div>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script src="/assets/app.js" defer></script>
+</body>
+</html>
