@@ -26,7 +26,7 @@ h2 { margin-bottom: 4px; font-size: 1.05rem; }
 .top-actions { display: flex; align-items: center; gap: 12px; }
 main { padding: 22px 28px 60px; }
 .card { border: 1px solid var(--line); border-radius: 14px; background: var(--card); box-shadow: 0 4px 18px rgb(18 40 31 / 5%); }
-.summary-strip { display: grid; grid-template-columns: repeat(4, minmax(120px, 1fr)) 2fr; gap: 12px; margin-bottom: 18px; padding: 14px 18px; border: 1px solid #cbd9d2; border-radius: 12px; background: var(--green-soft); }
+.summary-strip { display: grid; grid-template-columns: repeat(5, minmax(120px, 1fr)) 2fr; gap: 12px; margin-bottom: 18px; padding: 14px 18px; border: 1px solid #cbd9d2; border-radius: 12px; background: var(--green-soft); }
 .summary-strip div { display: flex; flex-direction: column; gap: 2px; }
 .summary-strip span { color: var(--muted); font-size: .75rem; }
 .summary-strip p { align-self: center; margin: 0; color: #42564d; font-size: .8rem; }
@@ -71,6 +71,7 @@ label.wide { grid-column: span 2; }
 .viewport-message { position: absolute; inset: 45% 0 auto; color: white; text-align: center; }
 .marker-solve { fill: #28d79a; stroke: #082b20; stroke-width: 3; }
 .marker-held { fill: #f0a62a; stroke: #3a2604; stroke-width: 3; }
+.marker-validation { fill: #7e57c2; stroke: #24113f; stroke-width: 3; }
 .marker-draft { fill: #63a7ee; stroke: white; stroke-width: 3; }
 .marker-label { paint-order: stroke; fill: white; stroke: #16221d; stroke-width: 3; font-size: 22px; font-weight: 800; }
 .landmark-form { grid-template-columns: repeat(4, minmax(150px, 1fr)); margin: 0; }

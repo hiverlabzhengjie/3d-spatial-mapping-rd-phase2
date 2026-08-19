@@ -100,7 +100,7 @@ def create_p04_calibration_app(
     @app.post("/api/capture-candidate")
     async def capture_candidate(request: Request) -> dict[str, Any]:
         if candidate_capturer is None:
-            raise P04CalibrationError("live Camera 3 capture is not configured")
+            raise P04CalibrationError("live camera capture is not configured")
         payload = await _json_object(request)
         delay = payload.get("delay_seconds")
         if not isinstance(delay, int | float) or isinstance(delay, bool):
@@ -140,6 +140,11 @@ def create_p04_calibration_app(
     async def export_snapshot() -> dict[str, Any]:
         path, payload = service.export_snapshot()
         return {"filename": path.name, "export": payload}
+
+    @app.post("/api/export-d034-validation")
+    async def export_d034_validation() -> dict[str, Any]:
+        path, payload = service.export_d034_validation_seal()
+        return {"filename": path.name, "validation_seal": payload}
 
     return app
 

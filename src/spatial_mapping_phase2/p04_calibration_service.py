@@ -29,6 +29,7 @@ from spatial_mapping_phase2.p04_calibration_domain import (
     P04CalibrationError,
     PixelPoint,
     WorldPoint,
+    build_d034_validation_seal,
     build_p04_export,
 )
 
@@ -86,8 +87,12 @@ class CapturedCandidate:
 
 
 class CandidateCapturer(Protocol):
+    @property
+    def camera_id(self) -> str:
+        """Stable camera identity served by this capturer."""
+
     def capture(self) -> CapturedCandidate:
-        """Capture one bounded read-only Camera 3 frame."""
+        """Capture one bounded read-only camera frame."""
 
 
 class P03PreviewCandidateCapturer:
@@ -95,6 +100,10 @@ class P03PreviewCandidateCapturer:
 
     def __init__(self, endpoint: LocalRtspEndpoint) -> None:
         self._endpoint = endpoint
+
+    @property
+    def camera_id(self) -> str:
+        return self._endpoint.camera_id
 
     def capture(self) -> CapturedCandidate:
         from spatial_mapping_phase2.p03_capture_service import CapturePolicy
@@ -140,12 +149,14 @@ class P04CalibrationService:
         self._frames_dir = self.workspace / "frames"
         self._history_dir = self.workspace / "history"
         self._exports_dir = self.workspace / "exports"
+        self._validation_seals_dir = self.workspace / "validation_seals"
         for directory in (
             self.workspace,
             self._sources_dir,
             self._frames_dir,
             self._history_dir,
             self._exports_dir,
+            self._validation_seals_dir,
         ):
             directory.mkdir(parents=True, exist_ok=True)
 
@@ -153,7 +164,10 @@ class P04CalibrationService:
         return self._state_path.is_file()
 
     def initialize(
-        self, facility_export_path: Path, plan_image_path: Path
+        self,
+        facility_export_path: Path,
+        plan_image_path: Path,
+        camera_id: str = "office-cam-03",
     ) -> CalibrationWorkspace:
         """Create a clean workspace from exact P02 export and rendered-plan artifacts."""
 
@@ -177,7 +191,7 @@ class P04CalibrationService:
             state = CalibrationWorkspace(
                 P04_SCHEMA_VERSION,
                 0,
-                "office-cam-03",
+                camera_id,
                 reference,
                 (),
                 (),
@@ -249,6 +263,11 @@ class P04CalibrationService:
             or not 0 <= delay_seconds <= 30
         ):
             raise P04CalibrationError("capture delay_seconds must be between 0 and 30")
+        state = self.load_state()
+        if capturer.camera_id != state.camera_id:
+            raise P04CalibrationError(
+                f"capture source {capturer.camera_id} does not match workspace {state.camera_id}"
+            )
         self._sleeper(float(delay_seconds))
         try:
             candidate = capturer.capture()
@@ -256,9 +275,12 @@ class P04CalibrationService:
             raise
         except Exception as error:
             raise P04CalibrationError(
-                f"timed Camera 3 capture failed ({type(error).__name__})"
+                f"timed camera capture failed ({type(error).__name__})"
             ) from error
-        frame_id = datetime.now(UTC).strftime("cam03-live-%Y%m%dt%H%M%S%fz").lower()
+        camera_number = state.camera_id.rsplit("-", 1)[-1]
+        frame_id = datetime.now(UTC).strftime(
+            f"cam{camera_number}-live-%Y%m%dt%H%M%S%fz"
+        ).lower()
         temporary = self.workspace / f".{frame_id}.capturing.jpg"
         temporary.write_bytes(candidate.content)
         try:
@@ -327,7 +349,9 @@ class P04CalibrationService:
             try:
                 role = LandmarkRole(_required_string(payload, "role"))
             except ValueError as error:
-                raise P04CalibrationError("role must be solve or held-out") from error
+                raise P04CalibrationError(
+                    "role must be solve, held-out or d034-validation"
+                ) from error
             landmark = LinkedLandmark(
                 _required_string(payload, "landmark_id"),
                 _required_string(payload, "name"),
@@ -394,6 +418,10 @@ class P04CalibrationService:
             "held_out_count": sum(
                 landmark.role is LandmarkRole.HELD_OUT for landmark in state.landmarks
             ),
+            "d034_validation_count": sum(
+                landmark.role is LandmarkRole.D034_VALIDATION
+                for landmark in state.landmarks
+            ),
         }
         return payload
 
@@ -421,6 +449,18 @@ class P04CalibrationService:
             timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
             filename = f"p04-linked-correspondences-r{state.revision}-{timestamp}.json"
             path = self._exports_dir / filename
+            self._atomic_write_json(path, payload)
+            return path, payload
+
+    def export_d034_validation_seal(self) -> tuple[Path, dict[str, Any]]:
+        """Write a separate immutable two-point validation seal that excludes solve data."""
+
+        with self._lock:
+            state = self.load_state()
+            payload = build_d034_validation_seal(state)
+            timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+            filename = f"p05-d034-validation-r{state.revision}-{timestamp}.json"
+            path = self._validation_seals_dir / filename
             self._atomic_write_json(path, payload)
             return path, payload
 
@@ -547,10 +587,14 @@ def _finite_number(value: Any, field_name: str) -> float:
     return result
 
 
-def load_p04_camera3_endpoint(secret_file: Path) -> LocalRtspEndpoint:
-    """Load only Camera 3's local endpoint without returning it in diagnostics."""
+def load_calibration_camera_endpoint(
+    secret_file: Path, camera_id: str
+) -> LocalRtspEndpoint:
+    """Load one selected camera endpoint without returning it in diagnostics."""
 
-    key = CAMERA_ENDPOINT_KEYS["office-cam-03"]
+    if camera_id not in CAMERA_ENDPOINT_KEYS:
+        raise P04CalibrationError("camera_id must be one of office-cam-01 through office-cam-04")
+    key = CAMERA_ENDPOINT_KEYS[camera_id]
     value = os.environ.get(key, "")
     if secret_file.is_file():
         for line in secret_file.read_text(encoding="utf-8").splitlines():
@@ -561,6 +605,12 @@ def load_p04_camera3_endpoint(secret_file: Path) -> LocalRtspEndpoint:
             if local_key.strip() == key:
                 value = local_value.strip()
     try:
-        return LocalRtspEndpoint("office-cam-03", key, value)
+        return LocalRtspEndpoint(camera_id, key, value)
     except Exception as error:
-        raise P04CalibrationError("Camera 3 RTSP endpoint is missing or malformed") from error
+        raise P04CalibrationError(f"{camera_id} RTSP endpoint is missing or malformed") from error
+
+
+def load_p04_camera3_endpoint(secret_file: Path) -> LocalRtspEndpoint:
+    """Backward-compatible Camera 3 endpoint loader."""
+
+    return load_calibration_camera_endpoint(secret_file, "office-cam-03")

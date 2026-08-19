@@ -25,6 +25,8 @@ class _FakeInspector:
 
 
 class _FakeCapturer:
+    camera_id = "office-cam-03"
+
     def capture(self) -> CapturedCandidate:
         return CapturedCandidate(
             b"timed-live-frame",
@@ -107,6 +109,54 @@ def test_linked_landmark_derives_xy_and_allows_optional_uncertainty(tmp_path: Pa
     assert path.is_file()
     assert exported["status"] == "ready-for-pose-input-review"
     assert exported["role_counts"] == {"solve": 1, "held-out": 0}
+
+
+def test_d034_validation_is_exported_separately_from_solve_snapshot(tmp_path: Path) -> None:
+    service, _ = _initialized_service(tmp_path)
+    _add_approved_frame(service, tmp_path)
+    service.add_landmark(_landmark_payload())
+    first = _landmark_payload()
+    first.update({"landmark_id": "d034-v1", "name": "D034 validation 1"})
+    first["role"] = "d034-validation"
+    first["image_point"] = {"u": 300.0, "v": 400.0}
+    second = _landmark_payload()
+    second.update({"landmark_id": "d034-v2", "name": "D034 validation 2"})
+    second["role"] = "d034-validation"
+    second["image_point"] = {"u": 1500.0, "v": 700.0}
+    service.add_landmark(first)
+    service.add_landmark(second)
+
+    _, solve_export = service.export_snapshot()
+    seal_path, seal = service.export_d034_validation_seal()
+
+    assert [item["landmark_id"] for item in solve_export["landmarks"]] == [
+        "door-north-top"
+    ]
+    assert solve_export["excluded_d034_validation_landmark_ids"] == ["d034-v1", "d034-v2"]
+    assert seal_path.parent.name == "validation_seals"
+    assert seal["status"] == "sealed-unconsumed"
+    assert seal["solve_data_included"] is False
+    assert [item["landmark_id"] for item in seal["validation_landmarks"]] == [
+        "d034-v1",
+        "d034-v2",
+    ]
+
+
+@pytest.mark.parametrize("camera_id", ["office-cam-01", "office-cam-02", "office-cam-04"])
+def test_workspace_supports_p05_camera_ids(tmp_path: Path, camera_id: str) -> None:
+    export_path = tmp_path / "facility-export.json"
+    export_path.write_text(json.dumps(_facility_export()), encoding="utf-8")
+    plan_path = tmp_path / "plan.png"
+    plan_path.write_bytes(b"synthetic-plan")
+    service = P04CalibrationService(tmp_path / "workspace", _FakeInspector())
+
+    state = service.initialize(export_path, plan_path, camera_id)
+
+    assert state.camera_id == camera_id
+    frame_path = tmp_path / "candidate.jpg"
+    frame_path.write_bytes(b"candidate")
+    state = service.add_frame(frame_path, "candidate-001", "stream-profile-v1")
+    assert state.frames[0].camera_id == camera_id
 
 
 def test_landmark_requires_approved_frame_and_server_selected_xy(tmp_path: Path) -> None:
@@ -219,6 +269,17 @@ def test_user_timed_capture_waits_then_creates_previewable_candidate(tmp_path: P
         service.capture_candidate(31, _FakeCapturer())
 
 
+def test_live_capture_rejects_endpoint_workspace_camera_mismatch(tmp_path: Path) -> None:
+    service, _ = _initialized_service(tmp_path)
+    capturer = _FakeCapturer()
+    capturer.camera_id = "office-cam-01"
+
+    with pytest.raises(P04CalibrationError, match="does not match workspace"):
+        service.capture_candidate(0, capturer)
+
+    assert service.load_state().frames == ()
+
+
 def test_web_console_supports_review_link_export_and_rejections(tmp_path: Path) -> None:
     app = create_p04_calibration_app(
         tmp_path / "workspace", _FakeInspector(), _FakeCapturer()
@@ -274,6 +335,7 @@ def test_web_console_supports_review_link_export_and_rejections(tmp_path: Path) 
         "approved_frame_id": "cam03-quiet-001",
         "solve_count": 1,
         "held_out_count": 0,
+        "d034_validation_count": 0,
     }
     exported = client.post("/api/export")
     assert exported.status_code == 200

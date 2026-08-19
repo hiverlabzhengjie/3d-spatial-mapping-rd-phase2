@@ -10,7 +10,9 @@ from typing import Any
 
 P04_SCHEMA_VERSION = "p04-calibration-workspace-v1"
 P04_EXPORT_SCHEMA_VERSION = "p04-linked-correspondence-export-v1"
+D034_VALIDATION_SCHEMA_VERSION = "p05-d034-validation-seal-v1"
 PILOT_CAMERA_ID = "office-cam-03"
+CALIBRATION_CAMERA_IDS = tuple(f"office-cam-0{index}" for index in range(1, 5))
 _ID_PATTERN = re.compile(r"^[a-z][a-z0-9-]*$")
 
 
@@ -28,6 +30,7 @@ class FrameReviewStatus(StrEnum):
 class LandmarkRole(StrEnum):
     SOLVE = "solve"
     HELD_OUT = "held-out"
+    D034_VALIDATION = "d034-validation"
 
 
 @dataclass(frozen=True, slots=True)
@@ -187,8 +190,7 @@ class CalibrationFrame:
 
     def __post_init__(self) -> None:
         _require_id(self.frame_id, "frame_id")
-        if self.camera_id != PILOT_CAMERA_ID:
-            raise P04CalibrationError(f"P04 pilot frame must belong to {PILOT_CAMERA_ID}")
+        _require_calibration_camera_id(self.camera_id)
         _require_non_blank(self.profile_version, "profile_version")
         _require_sha256(self.sha256, "frame SHA-256")
         if self.byte_count <= 0:
@@ -320,8 +322,7 @@ class CalibrationWorkspace:
             raise P04CalibrationError("unsupported P04 calibration workspace schema")
         if self.revision < 0:
             raise P04CalibrationError("workspace revision must be non-negative")
-        if self.camera_id != PILOT_CAMERA_ID:
-            raise P04CalibrationError(f"P04 workspace camera must be {PILOT_CAMERA_ID}")
+        _require_calibration_camera_id(self.camera_id)
         frame_ids = [frame.frame_id for frame in self.frames]
         if len(frame_ids) != len(set(frame_ids)):
             raise P04CalibrationError("frame IDs must be unique")
@@ -416,23 +417,70 @@ def build_p04_export(workspace: CalibrationWorkspace) -> dict[str, Any]:
     """Build the credential-free linked-correspondence snapshot used by later PnP work."""
 
     approved = workspace.approved_frame
+    operational = tuple(
+        landmark
+        for landmark in workspace.landmarks
+        if landmark.role is not LandmarkRole.D034_VALIDATION
+    )
     return {
         "schema_version": P04_EXPORT_SCHEMA_VERSION,
         "source_revision": workspace.revision,
         "camera_id": workspace.camera_id,
-        "status": "ready-for-pose-input-review" if approved and workspace.landmarks else "draft",
+        "status": "ready-for-pose-input-review" if approved and operational else "draft",
         "approved_frame": None if approved is None else approved.to_dict(),
         "facility_reference": workspace.facility_reference.to_dict(),
-        "landmarks": [landmark.to_dict() for landmark in workspace.landmarks],
+        "landmarks": [landmark.to_dict() for landmark in operational],
+        "excluded_d034_validation_landmark_ids": [
+            landmark.landmark_id
+            for landmark in workspace.landmarks
+            if landmark.role is LandmarkRole.D034_VALIDATION
+        ],
         "role_counts": {
-            role.value: sum(landmark.role is role for landmark in workspace.landmarks)
-            for role in LandmarkRole
+            role.value: sum(landmark.role is role for landmark in operational)
+            for role in (LandmarkRole.SOLVE, LandmarkRole.HELD_OUT)
         },
         "authority_note": (
             "world XY is derived from provisional P02 revision 3; Z is operator-entered from "
             "physical evidence; no camera pose or accuracy acceptance is implied"
         ),
     }
+
+
+def build_d034_validation_seal(workspace: CalibrationWorkspace) -> dict[str, Any]:
+    """Export exactly two D034 validation points separately from every solve artifact."""
+
+    approved = workspace.approved_frame
+    validation = tuple(
+        landmark
+        for landmark in workspace.landmarks
+        if landmark.role is LandmarkRole.D034_VALIDATION
+    )
+    if approved is None:
+        raise P04CalibrationError("approve a primary frame before sealing D034 validation")
+    if len(validation) != 2:
+        raise P04CalibrationError("D034 validation seal requires exactly two validation points")
+    if any(landmark.frame_id != approved.frame_id for landmark in validation):
+        raise P04CalibrationError("D034 validation points must use the approved primary frame")
+    return {
+        "schema_version": D034_VALIDATION_SCHEMA_VERSION,
+        "source_revision": workspace.revision,
+        "camera_id": workspace.camera_id,
+        "status": "sealed-unconsumed",
+        "approved_frame_id": approved.frame_id,
+        "approved_frame_sha256": approved.sha256,
+        "facility_reference": workspace.facility_reference.to_dict(),
+        "validation_landmarks": [landmark.to_dict() for landmark in validation],
+        "solve_data_included": False,
+        "authority_note": (
+            "D034 validation-only seal; do not open until the intrinsic, four-point solve set, "
+            "algorithm, thresholds and orientation manifest are frozen"
+        ),
+    }
+
+
+def _require_calibration_camera_id(camera_id: str) -> None:
+    if camera_id not in CALIBRATION_CAMERA_IDS:
+        raise P04CalibrationError("camera_id must be one of office-cam-01 through office-cam-04")
 
 
 def _typed_object(value: Any, field_name: str) -> dict[str, Any]:

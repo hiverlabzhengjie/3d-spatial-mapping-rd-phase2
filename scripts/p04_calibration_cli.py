@@ -19,6 +19,11 @@ def main() -> None:
     initialize = subparsers.add_parser("init", help="Bind a P02 export and rendered plan")
     initialize.add_argument("--facility-export", type=Path, required=True)
     initialize.add_argument("--plan-image", type=Path, required=True)
+    initialize.add_argument(
+        "--camera-id",
+        choices=tuple(f"office-cam-0{index}" for index in range(1, 5)),
+        default="office-cam-03",
+    )
 
     add_frame = subparsers.add_parser("add-frame", help="Import an immutable frame candidate")
     add_frame.add_argument("--source", type=Path, required=True)
@@ -59,7 +64,9 @@ def main() -> None:
     service = P04CalibrationService(arguments.workspace)
     result: dict[str, Any]
     if arguments.command == "init":
-        result = service.initialize(arguments.facility_export, arguments.plan_image).to_dict()
+        result = service.initialize(
+            arguments.facility_export, arguments.plan_image, arguments.camera_id
+        ).to_dict()
     elif arguments.command == "add-frame":
         result = service.add_frame(
             arguments.source,

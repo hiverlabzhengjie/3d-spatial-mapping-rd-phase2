@@ -11,8 +11,8 @@ let planZoom = 1;
 
 document.addEventListener("DOMContentLoaded", async () => {
   [
-    "notReady", "workspace", "revisionBadge", "exportButton", "cameraId", "approvedFrame",
-    "solveCount", "heldOutCount", "toggleImportButton", "importForm", "sourcePath",
+    "notReady", "workspace", "revisionBadge", "exportButton", "validationExportButton", "cameraId", "captureCameraId", "approvedFrame",
+    "solveCount", "heldOutCount", "validationCount", "toggleImportButton", "importForm", "sourcePath",
     "captureDelay", "captureButton", "captureStatus", "newFrameId", "profileVersion",
     "expectedSha", "frameCards", "imagePointReadout",
     "worldXYReadout", "pickImageButton", "pickPlanButton", "frameViewport", "frameScene",
@@ -54,6 +54,7 @@ function wireEvents() {
   });
   ui.landmarkForm.addEventListener("submit", saveLandmark);
   ui.exportButton.addEventListener("click", exportSnapshot);
+  ui.validationExportButton.addEventListener("click", exportD034Validation);
 }
 
 async function loadState() {
@@ -63,6 +64,7 @@ async function loadState() {
       ui.notReady.hidden = false;
       ui.workspace.hidden = true;
       ui.exportButton.disabled = true;
+      ui.validationExportButton.disabled = true;
       return;
     }
     setState(payload.state);
@@ -78,13 +80,16 @@ function setState(payload) {
   ui.notReady.hidden = true;
   ui.workspace.hidden = false;
   ui.exportButton.disabled = false;
+  ui.validationExportButton.disabled = false;
   const pointCount = state.landmarks.length;
   ui.revisionBadge.textContent = `${pointCount} linked ${pointCount === 1 ? "point" : "points"}`;
   ui.revisionBadge.title = `Workspace history version ${state.revision}`;
   ui.cameraId.textContent = state.camera_id;
+  ui.captureCameraId.textContent = state.camera_id;
   ui.approvedFrame.textContent = derived.approved_frame_id || "None";
   ui.solveCount.textContent = String(derived.solve_count);
   ui.heldOutCount.textContent = String(derived.held_out_count);
+  ui.validationCount.textContent = String(derived.d034_validation_count);
   configurePlan();
   configureApprovedFrame();
   renderFrames();
@@ -127,7 +132,7 @@ function renderFrames() {
   ui.frameCards.replaceChildren();
   if (!state.frames.length) {
     const empty = document.createElement("p");
-    empty.textContent = "No candidate frames yet. Start a timed Camera 3 capture when the scene is ready, or add a local frame.";
+    empty.textContent = `No candidate frames yet. Start a timed ${state.camera_id} capture when the scene is ready, or add a local frame.`;
     ui.frameCards.append(empty);
     return;
   }
@@ -188,7 +193,7 @@ async function captureTimedCandidate() {
     const newest = state.frames[state.frames.length - 1];
     ui.captureStatus.textContent = "Candidate ready";
     openPreview(newest);
-    toast("Timed Camera 3 candidate captured. Review before approving or recapturing.");
+    toast(`Timed ${state.camera_id} candidate captured. Review before approving or recapturing.`);
   } catch (error) {
     clearInterval(timer);
     ui.captureStatus.textContent = "Capture failed";
@@ -362,7 +367,7 @@ function renderOverlays() {
 }
 
 function addMarker(overlay, point, label, role) {
-  const circle = svg("circle", { cx: point.u, cy: point.v, r: 12, class: role === "solve" ? "marker-solve" : role === "held-out" ? "marker-held" : "marker-draft" });
+  const circle = svg("circle", { cx: point.u, cy: point.v, r: 12, class: role === "solve" ? "marker-solve" : role === "held-out" ? "marker-held" : role === "d034-validation" ? "marker-validation" : "marker-draft" });
   const text = svg("text", { x: point.u + 17, y: point.v - 14, class: "marker-label" });
   text.textContent = label;
   overlay.append(circle, text);
@@ -477,6 +482,21 @@ async function exportSnapshot() {
     link.click();
     URL.revokeObjectURL(link.href);
     toast(`Exported ${payload.filename}`);
+  } catch (error) {
+    toast(error.message, true);
+  }
+}
+
+async function exportD034Validation() {
+  try {
+    const payload = await api("/api/export-d034-validation", { method: "POST" });
+    const blob = new Blob([JSON.stringify(payload.validation_seal, null, 2) + "\n"], { type: "application/json" });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = payload.filename;
+    link.click();
+    URL.revokeObjectURL(link.href);
+    toast(`Sealed ${payload.filename}; do not inspect before the solve manifest is frozen.`);
   } catch (error) {
     toast(error.message, true);
   }

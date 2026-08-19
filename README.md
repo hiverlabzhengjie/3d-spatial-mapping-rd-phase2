@@ -67,6 +67,19 @@ accuracy, universal fleet intrinsics, tight camera fusion or accepted geometry.
 
 See [the sanitized P04 summary](docs/stages/P04/PUBLIC_SUMMARY.md).
 
+### P05 - Fixed-centre orientation and connectivity evidence
+
+P05 replaced landmark-derived 6-DoF operational placement with a fixed-centre orientation
+workflow. It adds three-of-four Wahba/SVD consensus, rotation-only robust refinement, explicit
+conditioning and sensitivity rejection, sealed two-point validation, immutable intrinsic
+challengers and typed camera/connectivity authority records.
+
+P05 is partially accepted as an engineering workflow. The private pilot produced no accepted
+camera pose or connectivity edge; separately labelled consumed-observation hypotheses remain
+experiment seeds only and cannot authorize fusion or geometry.
+
+See [the sanitized P05 summary](docs/stages/P05/PUBLIC_SUMMARY.md).
+
 ## Repository layout
 
 | Location | Purpose |
@@ -80,12 +93,13 @@ See [the sanitized P04 summary](docs/stages/P04/PUBLIC_SUMMARY.md).
 
 ## Validation
 
-The P04 snapshot passed:
+The P05 snapshot passed:
 
 ```text
-126 tests passed
+161 tests passed
 Ruff passed
-strict mypy passed for 47 source and test files
+strict mypy passed for 57 source and test files
+strict mypy passed for the published P05 operational entry points
 ```
 
 Model weights, raw outputs, client media, floor-plan derivatives, RTSP credentials, endpoint
