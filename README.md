@@ -80,6 +80,19 @@ experiment seeds only and cannot authorize fusion or geometry.
 
 See [the sanitized P05 summary](docs/stages/P05/PUBLIC_SUMMARY.md).
 
+### P06 - DA3 reconstruction-mode evaluation
+
+P06 added a typed, evidence-bounded evaluation workflow for the exact mandatory DA3 checkpoint:
+allow-listed single- and multi-view cases, explicit transform directions, immutable raw-field
+contracts, deterministic repeatability controls, masked depth/confidence comparisons and
+synthetic cross-view projection checks.
+
+P06 is partially accepted. Independent single-view processing remains the current baseline for
+all cameras. Pose-conditioned outputs remain diagnostic and establish no camera pose,
+connectivity edge, facility alignment, fusion or accepted geometry.
+
+See [the sanitized P06 summary](docs/stages/P06/PUBLIC_SUMMARY.md).
+
 ## Repository layout
 
 | Location | Purpose |
@@ -96,10 +109,10 @@ See [the sanitized P05 summary](docs/stages/P05/PUBLIC_SUMMARY.md).
 The P05 snapshot passed:
 
 ```text
-161 tests passed
+172 tests passed
 Ruff passed
-strict mypy passed for 57 source and test files
-strict mypy passed for the published P05 operational entry points
+strict mypy passed for 59 source and test files
+strict mypy passed for the published P05/P06 operational entry points
 ```
 
 Model weights, raw outputs, client media, floor-plan derivatives, RTSP credentials, endpoint
