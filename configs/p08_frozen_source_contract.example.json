@@ -1,0 +1,12 @@
+{
+  "adoption_manifest_path": "<artifact-root>/runs/<p07-v2-adoption>/adoption-manifest.json",
+  "adoption_manifest_sha256": "<sha256>",
+  "final_rerun_manifest_path": "<artifact-root>/runs/<p07-final-preview>/frustum-preview-manifest.json",
+  "final_rerun_manifest_sha256": "<sha256>",
+  "final_rerun_path": "<artifact-root>/runs/<p07-final-preview>/owner-approved-working-facility-geometry-v2.rrd",
+  "final_rerun_sha256": "<sha256>",
+  "rollback_manifest_path": "<artifact-root>/runs/<p07-v1-rollback>/manifest.json",
+  "rollback_manifest_sha256": "<sha256>",
+  "selected_geometry_path": "<artifact-root>/runs/<p07-v2-source>/geometry/all-four-da3-combined-diagnostic.npz",
+  "selected_geometry_sha256": "<sha256>"
+}

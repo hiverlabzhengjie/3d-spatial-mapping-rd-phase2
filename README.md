@@ -109,6 +109,22 @@ geometry.
 
 See [the sanitized P07 summary](docs/stages/P07/PUBLIC_SUMMARY.md).
 
+### P08 - Floor reference and integrated workflow foundation
+
+P08 added a deterministic, separately stored mathematical floor reference without changing the
+selected source point cloud. It also introduced a configurable scene workspace, explicit phase
+states, bounded jobs, compatibility adapters, shared service/CLI paths, secret-safe failures and
+constrained launch of verified Rerun recordings.
+
+P08 is partially accepted. The floor-reference derivative and reusable application foundation
+are available for internal R&D use. Further web-console visual polish, workflow ergonomics,
+operator guidance and production-style usability refinement are deferred.
+
+This milestone does not establish survey-grade XYZ accuracy, as-built truth, accepted camera
+connectivity or client-acceptance geometry.
+
+See [the sanitized P08 summary](docs/stages/P08/PUBLIC_SUMMARY.md).
+
 ## Repository layout
 
 | Location | Purpose |
@@ -122,12 +138,12 @@ See [the sanitized P07 summary](docs/stages/P07/PUBLIC_SUMMARY.md).
 
 ## Validation
 
-The P07 snapshot passed:
+The P08 snapshot passed:
 
 ```text
-205 tests passed
+224 tests passed
 Ruff passed
-strict mypy passed for 63 source and test files
+strict mypy passed for 73 source and test files
 ```
 
 Model weights, raw outputs, client media, floor-plan derivatives, RTSP credentials, endpoint

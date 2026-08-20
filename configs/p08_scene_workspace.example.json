@@ -1,0 +1,32 @@
+{
+  "artifact_root": "C:\\replace-with-absolute-artifact-root",
+  "artifacts": [],
+  "cameras": [
+    {
+      "camera_id": "north-camera",
+      "display_name": "North camera",
+      "enabled": true,
+      "endpoint_environment_key": "PHASE2_RTSP_NORTH"
+    },
+    {
+      "camera_id": "south-camera",
+      "display_name": "South camera",
+      "enabled": true,
+      "endpoint_environment_key": "PHASE2_RTSP_SOUTH"
+    }
+  ],
+  "display_name": "Example variable-roster facility",
+  "phases": [
+    {"artifact_ids": [], "message": "Configure the facility reference.", "phase_id": "P02", "prerequisites": [], "state": "ready", "workspace_reference_ids": []},
+    {"artifact_ids": [], "message": "Capture is unavailable until P02 is configured.", "phase_id": "P03", "prerequisites": ["P02"], "state": "ready", "workspace_reference_ids": []},
+    {"artifact_ids": [], "message": "Calibration references are not yet selected.", "phase_id": "P04", "prerequisites": ["P03"], "state": "ready", "workspace_reference_ids": []},
+    {"artifact_ids": [], "message": "Pose review is not yet available.", "phase_id": "P05", "prerequisites": ["P04"], "state": "ready", "workspace_reference_ids": []},
+    {"artifact_ids": [], "message": "DA3 reconstruction is not yet available.", "phase_id": "P06", "prerequisites": ["P05"], "state": "ready", "workspace_reference_ids": []},
+    {"artifact_ids": [], "message": "World geometry is not yet selected.", "phase_id": "P07", "prerequisites": ["P06"], "state": "ready", "workspace_reference_ids": []},
+    {"artifact_ids": [], "message": "Floor processing is not yet available.", "phase_id": "P08", "prerequisites": ["P07"], "state": "ready", "workspace_reference_ids": []}
+  ],
+  "project_id": "example-project",
+  "scene_id": "example-scene",
+  "schema_version": "p08-scene-workspace-v1",
+  "workspace_references": []
+}
