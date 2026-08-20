@@ -93,6 +93,22 @@ connectivity edge, facility alignment, fusion or accepted geometry.
 
 See [the sanitized P06 summary](docs/stages/P06/PUBLIC_SUMMARY.md).
 
+### P07 - World-space geometry and controlled fusion
+
+P07 added reusable, tested depth back-projection, world-frame transformation, traceable filtering,
+provenance-preserving deterministic merge, per-camera removal and calibrated Rerun camera
+visualization. Raw inputs and derived geometry versions remain separate and identifiable.
+
+For this internal R&D iteration, owner review selected a four-view pose-conditioned DA3 result as
+working facility geometry while retaining fixed camera transforms and an exact single-view
+rollback. Source-camera membership remains preserved throughout.
+
+P07 is accepted as a demonstrable working-geometry workflow. It does not establish survey-grade
+XYZ accuracy, verified as-built truth, a validated connectivity graph or client-acceptance
+geometry.
+
+See [the sanitized P07 summary](docs/stages/P07/PUBLIC_SUMMARY.md).
+
 ## Repository layout
 
 | Location | Purpose |
@@ -106,13 +122,12 @@ See [the sanitized P06 summary](docs/stages/P06/PUBLIC_SUMMARY.md).
 
 ## Validation
 
-The P05 snapshot passed:
+The P07 snapshot passed:
 
 ```text
-172 tests passed
+205 tests passed
 Ruff passed
-strict mypy passed for 59 source and test files
-strict mypy passed for the published P05/P06 operational entry points
+strict mypy passed for 63 source and test files
 ```
 
 Model weights, raw outputs, client media, floor-plan derivatives, RTSP credentials, endpoint
