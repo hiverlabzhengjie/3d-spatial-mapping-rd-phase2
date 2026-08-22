@@ -169,8 +169,12 @@ def test_bounded_jobs_reject_duplicate_unknown_and_excess_capacity() -> None:
             manager.submit("two", "P08", "wait", lambda _cancel: {})
         with pytest.raises(P08WorkflowError, match="unknown"):
             manager.status("missing")
+        with pytest.raises(P08WorkflowError, match="active"):
+            manager.clear_terminal()
         release.set()
         _wait_for_terminal(manager, "one")
+        assert [job["job_id"] for job in manager.clear_terminal()] == ["one"]
+        assert manager.list() == ()
     finally:
         manager.close()
 
@@ -193,7 +197,14 @@ def test_safe_rerun_launch_uses_only_fixed_viewer_and_selected_allowed_artifact(
 
     launcher = SafeRerunLauncher(viewer, (scene.artifact_root,), launch)
     result = launcher.launch_selected(scene, "selected-rerun")
-    assert calls == [(str(viewer.resolve()), str(scene.artifacts[0].path.resolve()))]
+    assert calls == [
+        (
+            str(viewer.resolve()),
+            "--port",
+            "0",
+            str(scene.artifacts[0].path.resolve()),
+        )
+    ]
     assert result["process_id"] == 4321
     assert result["status"] == "launched"
 
@@ -216,9 +227,7 @@ def test_safe_rerun_launch_rejects_outside_root_wrong_suffix_and_stale_hash(
     outside.write_bytes(b"outside")
     outside_scene = replace(
         scene,
-        artifacts=(
-            replace(scene.artifacts[0], path=outside, sha256=_sha256(outside)),
-        ),
+        artifacts=(replace(scene.artifacts[0], path=outside, sha256=_sha256(outside)),),
     )
     with pytest.raises(P08WorkflowError, match="outside"):
         launcher.launch_selected(outside_scene, "selected-rerun")
@@ -226,15 +235,29 @@ def test_safe_rerun_launch_rejects_outside_root_wrong_suffix_and_stale_hash(
     wrong_suffix.write_bytes(b"wrong")
     wrong_scene = replace(
         scene,
-        artifacts=(
-            replace(scene.artifacts[0], path=wrong_suffix, sha256=_sha256(wrong_suffix)),
-        ),
+        artifacts=(replace(scene.artifacts[0], path=wrong_suffix, sha256=_sha256(wrong_suffix)),),
     )
     with pytest.raises(P08WorkflowError, match=r"\.rrd"):
         launcher.launch_selected(wrong_scene, "selected-rerun")
     scene.artifacts[0].path.write_bytes(b"stale")
     with pytest.raises(P08WorkflowError, match="stale"):
         launcher.launch_selected(scene, "selected-rerun")
+
+
+def test_safe_rerun_launcher_resolves_windows_environment_shim(tmp_path: Path) -> None:
+    environment = tmp_path / "runtime"
+    wrapper = environment / "Scripts" / "rerun.exe"
+    native = environment / "Lib" / "site-packages" / "rerun_sdk" / "rerun_cli" / "rerun.exe"
+    wrapper.parent.mkdir(parents=True)
+    native.parent.mkdir(parents=True)
+    wrapper.write_bytes(b"shim")
+    native.write_bytes(b"native")
+    artifact_root = tmp_path / "artifacts"
+    artifact_root.mkdir()
+
+    launcher = SafeRerunLauncher(wrapper, (artifact_root,))
+
+    assert launcher.viewer_executable == native.resolve()
 
 
 def test_workflow_launch_writes_immutable_action_manifest_before_duplicate(

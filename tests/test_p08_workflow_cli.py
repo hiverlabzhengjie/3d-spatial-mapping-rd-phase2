@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import subprocess
@@ -72,9 +73,7 @@ def _run(*arguments: str) -> subprocess.CompletedProcess[str]:
 def test_cli_create_and_status_match_integrated_web_status(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     scene_config = tmp_path / "scene.json"
-    scene_config.write_text(
-        json.dumps(_scene_config(tmp_path)), encoding="utf-8"
-    )
+    scene_config.write_text(json.dumps(_scene_config(tmp_path)), encoding="utf-8")
     created = _run(
         str(CLI),
         "--workspace-dir",
@@ -113,3 +112,63 @@ def test_console_rejects_non_localhost_bind_before_loading_workspace(
     )
     assert result.returncode == 2
     assert "may bind only to localhost" in result.stderr
+
+
+def test_cli_deletion_impact_enforces_baseline_retention_for_single_and_batch(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "workspace"
+    artifact_root = tmp_path / "artifacts"
+    artifact_root.mkdir()
+    recording = artifact_root / "authority.rrd"
+    recording.write_bytes(b"authority")
+    config = _scene_config(tmp_path)
+    config["artifacts"] = [
+        {
+            "artifact_id": "accepted-authority",
+            "phase_id": "P07",
+            "kind": "rerun-recording",
+            "path": str(recording.resolve()),
+            "sha256": hashlib.sha256(recording.read_bytes()).hexdigest(),
+            "authority": "accepted predecessor test",
+            "selected": True,
+        }
+    ]
+    scene_config = tmp_path / "scene.json"
+    scene_config.write_text(json.dumps(config), encoding="utf-8")
+    created = _run(
+        str(CLI),
+        "--workspace-dir",
+        str(workspace),
+        "create-scene",
+        "--scene-config",
+        str(scene_config),
+    )
+    assert created.returncode == 0, created.stderr
+
+    single = _run(
+        str(CLI),
+        "--workspace-dir",
+        str(workspace),
+        "artifact-delete-impact",
+        "--artifact-id",
+        "accepted-authority",
+    )
+    assert single.returncode == 0, single.stderr
+    single_payload = cast(dict[str, Any], json.loads(single.stdout))
+    assert single_payload["allowed"] is False
+    assert single_payload["protected_retention"]["class"] == "accepted-predecessor"
+    assert single_payload["deletion_token"] is None
+
+    batch = _run(
+        str(CLI),
+        "--workspace-dir",
+        str(workspace),
+        "artifact-delete-batch-impact",
+        "--artifact-id",
+        "accepted-authority",
+    )
+    assert batch.returncode == 0, batch.stderr
+    batch_payload = cast(dict[str, Any], json.loads(batch.stdout))
+    assert batch_payload["all_allowed"] is False
+    assert recording.is_file()

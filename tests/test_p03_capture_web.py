@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -10,9 +11,11 @@ from spatial_mapping_phase2.p01_observability import (
     LocalRtspEndpoint,
 )
 from spatial_mapping_phase2.p03_capture_service import (
+    CaptureAdapterError,
     CapturePolicy,
     CaptureRepository,
     CaptureWorkflowService,
+    PreviewFrame,
     SyntheticCaptureAdapter,
 )
 from spatial_mapping_phase2.p03_capture_web import create_p03_capture_app
@@ -37,9 +40,12 @@ def test_console_and_cli_service_surface_share_capture_and_bundle(tmp_path: Path
     workflow = service(tmp_path)
     client = TestClient(create_p03_capture_app(workflow))
     page = client.get("/").text
-    assert "Credential-safe health" in page
-    assert "Select bundle and show skew" in page
-    assert "img:not([src])" in page
+    assert "Camera readiness" in page
+    assert "Load live previews" in page
+    assert "Browse sessions" not in page
+    assert "Capture 2 seconds" not in page
+    assert "Select bundle" not in page
+    assert client.get("/api/cameras").json() == {"cameras": list(CAMERA_IDS)}
     health = client.get("/api/health").json()
     assert list(health) == list(CAMERA_IDS)
     assert "rtsp://" not in str(health)
@@ -65,6 +71,36 @@ def test_console_reports_validation_errors_without_endpoint_values(tmp_path: Pat
     response = client.post("/api/capture", json={"duration_seconds": 1})
     assert response.status_code == 422
     assert "rtsp" not in response.text.lower()
+
+
+def test_console_reports_preview_failure_without_internal_details(tmp_path: Path) -> None:
+    class FailingPreviewAdapter(SyntheticCaptureAdapter):
+        def preview(
+            self,
+            endpoint: LocalRtspEndpoint,
+            policy: CapturePolicy,
+            cancel: threading.Event,
+        ) -> PreviewFrame:
+            raise CaptureAdapterError("rtsp://user:secret@example.invalid/live")
+
+    endpoints = tuple(
+        LocalRtspEndpoint(camera_id, CAMERA_ENDPOINT_KEYS[camera_id], "rtsp://fixture/live")
+        for camera_id in CAMERA_IDS
+    )
+    workflow = CaptureWorkflowService(
+        endpoints,
+        FailingPreviewAdapter(),
+        CaptureRepository(tmp_path),
+        "test-v1",
+    )
+    client = TestClient(create_p03_capture_app(workflow))
+    response = client.get(f"/api/cameras/{CAMERA_IDS[0]}/preview")
+    assert response.status_code == 503
+    assert response.json() == {
+        "detail": "A live frame could not be loaded from this camera"
+    }
+    assert "rtsp" not in response.text.lower()
+    assert "secret" not in response.text.lower()
 
 
 def test_console_temporal_capture_enforces_supplied_window(tmp_path: Path) -> None:

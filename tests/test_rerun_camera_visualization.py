@@ -7,6 +7,7 @@ from spatial_mapping_phase2.rerun_camera_visualization import (
     RerunCameraFrustum,
     RerunCameraVisualizationError,
     camera_entity_path,
+    log_camera_frustum,
 )
 
 
@@ -70,4 +71,76 @@ def test_camera_frustum_rejects_pose_or_intrinsic_misrepresentation() -> None:
     with pytest.raises(RerunCameraVisualizationError, match="focal lengths"):
         RerunCameraFrustum(
             camera.camera_id, camera.T_world_from_camera, negative_focal, camera.frame_rgb
+        )
+
+
+class _FakeRerun:
+    class TransformRelation:
+        ParentFromChild = "parent-from-child"
+
+    class ViewCoordinates:
+        RDF = "rdf"
+
+    def __init__(self) -> None:
+        self.logs: list[tuple[str, object, bool]] = []
+
+    @staticmethod
+    def Transform3D(**values: object) -> tuple[str, dict[str, object]]:
+        return "transform", values
+
+    @staticmethod
+    def Pinhole(**values: object) -> tuple[str, dict[str, object]]:
+        return "pinhole", values
+
+    @staticmethod
+    def Image(value: object) -> tuple[str, object]:
+        return "image", value
+
+    @staticmethod
+    def Points3D(
+        *values: object, **named: object
+    ) -> tuple[str, tuple[object, ...], dict[str, object]]:
+        return "points", values, named
+
+    def log(self, path: str, value: object, *, static: bool) -> None:
+        self.logs.append((path, value, static))
+
+
+def test_log_camera_frustum_uses_readable_world_label_without_changing_camera_data() -> None:
+    camera = _camera()
+    rerun = _FakeRerun()
+    label_position = np.array([0.5, 2.0, 3.8])
+
+    paths = log_camera_frustum(
+        rerun,
+        "review/cameras",
+        "review/labels",
+        camera,
+        label_position_world=label_position,
+        label_text="Camera 1 | calibrated fixed working pose",
+    )
+
+    assert paths == ("/review/cameras/office-cam-01", "/review/labels/office-cam-01")
+    assert [path for path, _, _ in rerun.logs] == [
+        "review/cameras/office-cam-01",
+        "review/cameras/office-cam-01",
+        "review/cameras/office-cam-01",
+        "review/labels/office-cam-01",
+    ]
+    label = rerun.logs[-1][1]
+    assert isinstance(label, tuple)
+    np.testing.assert_array_equal(label[1][0][0], label_position)
+    assert label[2]["labels"] == ["Camera 1 | calibrated fixed working pose"]
+    assert label[2]["show_labels"] is True
+
+
+@pytest.mark.parametrize("position", [[1.0, 2.0], [1.0, np.nan, 3.0]])
+def test_log_camera_frustum_rejects_invalid_world_label_position(position: list[float]) -> None:
+    with pytest.raises(RerunCameraVisualizationError, match="finite XYZ"):
+        log_camera_frustum(
+            _FakeRerun(),
+            "review/cameras",
+            "review/labels",
+            _camera(),
+            label_position_world=np.asarray(position),
         )

@@ -210,6 +210,11 @@ class CaptureWorkflowService:
         self._closed = False
         self._cancel = threading.Event()
 
+    @property
+    def camera_ids(self) -> tuple[str, ...]:
+        """Return the configured camera roster without exposing endpoint secrets."""
+        return tuple(endpoint.camera_id for endpoint in self._endpoints)
+
     def health(self, policy: CapturePolicy) -> dict[str, dict[str, object]]:
         self._require_open()
         output: dict[str, dict[str, object]] = {}

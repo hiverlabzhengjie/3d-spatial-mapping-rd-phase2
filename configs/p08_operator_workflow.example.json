@@ -1,0 +1,9 @@
+{
+  "schema_version": "p08-operator-workflow-v1",
+  "camera_input_manifest_path": "C:\\replace-with-absolute-input-manifest.json",
+  "camera_input_manifest_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "geometry_rerun_artifact_id": "selected-geometry-preview",
+  "floor_rerun_artifact_id": "selected-floor-preview",
+  "geometry_approved": false,
+  "floor_approved": false
+}

@@ -9,13 +9,13 @@
 <body>
   <header class="topbar">
     <div>
-      <p class="eyebrow">PHASE 2 · CAMERA REGISTRATION</p>
+      <p class="eyebrow">CAMERA REGISTRATION</p>
       <h1>Calibration correspondence console</h1>
       <p class="subtitle">Link one exact camera pixel to the same physical point in facility XYZ.</p>
     </div>
     <div class="top-actions">
       <span id="revisionBadge" class="badge">Loading</span>
-      <button id="validationExportButton" class="button">Seal D034 validation</button>
+      <button id="validationExportButton" class="button">Seal validation points</button>
       <button id="exportButton" class="button primary">Export linked points</button>
     </div>
   </header>
@@ -23,7 +23,7 @@
   <main>
     <section id="notReady" class="empty-state" hidden>
       <h2>Workspace not initialized</h2>
-      <p>Initialize this local workspace from the selected P02 revision-3 export and its rendered plan.</p>
+      <p>Initialize this local workspace from the selected facility registration and rendered plan.</p>
     </section>
 
     <section id="workspace" hidden>
@@ -32,8 +32,8 @@
         <div><span>Approved frame</span><strong id="approvedFrame">None</strong></div>
         <div><span>Solve points</span><strong id="solveCount">0</strong></div>
         <div><span>Held-out points</span><strong id="heldOutCount">0</strong></div>
-        <div><span>D034 sealed validation</span><strong id="validationCount">0</strong></div>
-        <p>XY remains the provisional P02 single-control reference. Optional uncertainty fields do not block this pilot workflow.</p>
+        <div><span>Sealed validation points</span><strong id="validationCount">0</strong></div>
+        <p>XY uses the selected facility reference. Optional uncertainty fields do not block correspondence editing.</p>
       </div>
 
       <section class="frame-review card">
@@ -109,7 +109,7 @@
           </div>
           <div id="planViewport" class="image-viewport plan">
             <div id="planScene" class="image-scene">
-              <img id="planImage" alt="P02 rendered facility plan" draggable="false">
+              <img id="planImage" alt="Rendered facility plan" draggable="false">
               <svg id="planOverlay" aria-label="Facility-plan landmark overlay"></svg>
             </div>
           </div>
@@ -128,7 +128,7 @@
           <label>Height Z (m)<input id="zMetres" type="number" min="0" step="0.001" required></label>
           <label>Z source (optional)<input id="zSource" placeholder="Tape from finished floor"></label>
           <label>Z uncertainty (optional, m)<input id="zUncertainty" type="number" min="0" step="0.001"></label>
-          <label>Role<select id="landmarkRole"><option value="solve">Solve candidate</option><option value="held-out">Previously inspected diagnostic</option><option value="d034-validation">New D034 validation (sealed separately)</option></select></label>
+          <label>Role<select id="landmarkRole"><option value="solve">Solve candidate</option><option value="held-out">Previously inspected diagnostic</option><option value="d034-validation">New validation point (sealed separately)</option></select></label>
           <button id="saveLandmarkButton" class="button primary" type="submit">Save linked correspondence</button>
         </form>
       </section>

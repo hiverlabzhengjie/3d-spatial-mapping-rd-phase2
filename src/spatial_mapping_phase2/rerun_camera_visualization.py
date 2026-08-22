@@ -100,6 +100,9 @@ def log_camera_frustum(
     camera_root: str,
     label_root: str,
     camera: RerunCameraFrustum,
+    *,
+    label_position_world: Array | None = None,
+    label_text: str | None = None,
 ) -> tuple[str, str]:
     """Log a fixed transform, pinhole, image plane, axis triad and in-scene label to Rerun."""
 
@@ -127,13 +130,24 @@ def log_camera_frustum(
         static=True,
     )
     rr.log(entity_path, rr.Image(camera.frame_rgb), static=True)
+    label_position = (
+        camera.T_world_from_camera[:3, 3]
+        if label_position_world is None
+        else np.asarray(label_position_world, dtype=np.float64)
+    )
+    if label_position.shape != (3,) or not np.isfinite(label_position).all():
+        raise RerunCameraVisualizationError("label_position_world must be a finite XYZ vector")
+    readable_label = label_text or f"{camera.camera_id} | fixed working pose"
+    if not readable_label.strip():
+        raise RerunCameraVisualizationError("label_text must be non-empty when provided")
     rr.log(
         label_path,
         rr.Points3D(
-            [camera.T_world_from_camera[:3, 3]],
-            labels=[f"{camera.camera_id} | fixed working pose"],
+            [label_position],
+            labels=[readable_label],
             radii=0.085,
             colors=[[255, 214, 64]],
+            show_labels=True,
         ),
         static=True,
     )

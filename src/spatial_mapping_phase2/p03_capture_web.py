@@ -11,7 +11,11 @@ from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 
 from spatial_mapping_phase2.p03_capture_domain import P03ContractError
-from spatial_mapping_phase2.p03_capture_service import CapturePolicy, CaptureWorkflowService
+from spatial_mapping_phase2.p03_capture_service import (
+    CaptureAdapterError,
+    CapturePolicy,
+    CaptureWorkflowService,
+)
 from spatial_mapping_phase2.p03_temporal_capture import WarmTemporalCaptureService
 
 
@@ -26,6 +30,15 @@ def create_p03_capture_app(
     async def contract_error(_request: Request, error: P03ContractError) -> JSONResponse:
         return JSONResponse(status_code=422, content={"detail": str(error)})
 
+    @app.exception_handler(CaptureAdapterError)
+    async def capture_adapter_error(
+        _request: Request, _error: CaptureAdapterError
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=503,
+            content={"detail": "A live frame could not be loaded from this camera"},
+        )
+
     @app.get("/", response_class=HTMLResponse)
     async def index() -> HTMLResponse:
         page = files("spatial_mapping_phase2.p03_web").joinpath("index.html")
@@ -36,6 +49,10 @@ def create_p03_capture_app(
     @app.get("/api/health")
     async def health() -> dict[str, dict[str, object]]:
         return service.health(CapturePolicy())
+
+    @app.get("/api/cameras")
+    async def cameras() -> dict[str, tuple[str, ...]]:
+        return {"cameras": service.camera_ids}
 
     @app.get("/api/sessions")
     async def sessions() -> dict[str, tuple[str, ...]]:

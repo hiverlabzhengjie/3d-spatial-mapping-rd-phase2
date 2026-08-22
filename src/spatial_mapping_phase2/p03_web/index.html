@@ -1,47 +1,128 @@
 <!doctype html>
-<html>
+<html lang="en">
 <head>
-  <meta charset="utf-8"><meta name="viewport" content="width=device-width">
-  <title>P03 Live Capture</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Camera readiness</title>
   <style>
-    body{font:15px system-ui;background:#10151c;color:#e8eef5;margin:0;padding:24px}
-    main{max-width:1100px;margin:auto}.muted{color:#9fb0c2}
-    .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin:20px 0}
-    .card{background:#19222d;border:1px solid #334354;border-radius:10px;padding:14px}
-    .card img{width:100%;aspect-ratio:16/9;object-fit:cover;margin-top:10px;background:#0b0f14}
-    .card img:not([src]){display:none}
-    .healthy{border-color:#3a9d6e}.failed{border-color:#c85454}
-    button,input{font:inherit;padding:9px;border-radius:7px;border:1px solid #526579;background:#17202a;color:#fff}
-    button{cursor:pointer;background:#2869a8}pre{white-space:pre-wrap;background:#0b0f14;padding:14px;border-radius:8px;max-height:350px;overflow:auto}
+    :root{color-scheme:dark;--bg:#07111a;--panel:#101d29;--line:#2a3b4a;--ink:#f2f7fb;--muted:#9fb1c1;--cyan:#20d6e5;--green:#38d39f;--red:#ff806f}
+    *{box-sizing:border-box}
+    body{font:15px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;background:var(--bg);color:var(--ink);margin:0;padding:30px}
+    main{max-width:1220px;margin:auto}
+    .header{display:flex;align-items:flex-end;justify-content:space-between;gap:20px;margin-bottom:22px}
+    h1{font-size:2rem;line-height:1.15;margin:0 0 8px}
+    p{color:var(--muted);margin:0;max-width:700px}
+    button{min-height:44px;border:1px solid #1aaaba;border-radius:9px;padding:9px 18px;color:#031115;background:var(--cyan);font:700 0.95rem system-ui;cursor:pointer}
+    button:disabled{cursor:wait;opacity:.65}
+    #summary{min-height:27px;margin-bottom:14px;color:var(--muted);font-weight:650}
+    #summary.ready{color:var(--green)}
+    #summary.failed{color:var(--red)}
+    .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:14px}
+    .card{min-width:0;overflow:hidden;border:1px solid var(--line);border-radius:12px;background:var(--panel)}
+    .card.ready{border-color:#268d70}
+    .card.failed{border-color:#a65149}
+    .preview{display:grid;place-items:center;width:100%;aspect-ratio:16/9;background:#050b10;color:#657787}
+    .preview img{display:block;width:100%;height:100%;object-fit:cover}
+    .body{padding:14px}
+    .camera{font-size:1rem;font-weight:750;margin-bottom:5px}
+    .status{display:flex;align-items:center;gap:8px;color:var(--muted)}
+    .dot{width:9px;height:9px;border-radius:50%;background:#6d7c88}
+    .ready .dot{background:var(--green)}
+    .failed .dot{background:var(--red)}
+    .detail{min-height:21px;margin-top:5px;color:#8194a5;font-size:.82rem}
+    @media(max-width:640px){body{padding:20px}.header{align-items:stretch;flex-direction:column}.header button{width:100%}}
   </style>
 </head>
-<body><main>
-  <h1>Live capture</h1>
-  <div class="muted">Credential-safe health, bounded capture, cached sessions, actual skew and explicit degraded states.</div>
-  <div id="cameras" class="grid"></div>
-  <button onclick="health()">Refresh health</button>
-  <input id="sid" placeholder="session-id"><button onclick="captureNow()">Capture 2 seconds</button>
-  <button onclick="sessions()">Browse sessions</button>
-  <div>
-    <input id="bundle-session" placeholder="source session-id">
-    <input id="bundle-id" placeholder="bundle-id" value="selected-console">
-    <button onclick="selectBundle()">Select bundle and show skew</button>
-  </div>
-  <div>
-    <input id="temporal-bundle-id" placeholder="temporal bundle-id">
-    <input id="max-skew-ms" type="number" min="0.001" step="0.001" placeholder="maximum skew ms">
-    <button onclick="temporalCapture()">Capture time-gated bundle</button>
-  </div>
-  <pre id="out">Ready.</pre>
+<body>
+  <main>
+    <div class="header">
+      <div>
+        <h1>Camera readiness</h1>
+        <p>Load one live frame from every camera to confirm that each connection is available and ready for capture.</p>
+      </div>
+      <button id="load" type="button">Load live previews</button>
+    </div>
+    <div id="summary" role="status">Live cameras have not been checked.</div>
+    <div id="cameras" class="grid" aria-live="polite"></div>
+  </main>
   <script>
-    const out=document.getElementById('out'), cameras=document.getElementById('cameras');
-    async function api(path,options){const r=await fetch(path,options),j=await r.json();if(!r.ok)throw Error(j.detail||'request failed');return j}
-    async function health(){try{const x=await api('/api/health');cameras.innerHTML=Object.entries(x).map(([id,v])=>`<div class="card ${v.state}"><b>${id}</b><div>${v.state}</div><div>${v.profile?v.profile.codec+' '+v.profile.width_pixels+'×'+v.profile.height_pixels:v.failure_class}</div><button onclick="preview('${id}')">Preview</button><img id="preview-${id}" alt="Ephemeral preview for ${id}"></div>`).join('')}catch(e){out.textContent=e}}
-    async function preview(id){const image=document.getElementById('preview-'+id);image.src='/api/cameras/'+id+'/preview?nonce='+Date.now()}
-    async function captureNow(){try{out.textContent='Capturing…';const body=JSON.stringify({session_id:document.getElementById('sid').value,duration_seconds:2});out.textContent=JSON.stringify(await api('/api/capture',{method:'POST',headers:{'content-type':'application/json'},body}),null,2)}catch(e){out.textContent=e}}
-    async function sessions(){try{const listing=await api('/api/sessions'),rows=[];for(const id of listing.sessions){const s=await api('/api/sessions/'+id);rows.push({session_id:id,results:s.results.map(r=>({camera_id:r.camera_id,status:r.status,storage_mode:r.artifact&&r.artifact.storage_mode,failure_class:r.failure_class}))})}out.textContent=JSON.stringify({sessions:rows},null,2)}catch(e){out.textContent=e}}
-    async function selectBundle(){try{const sid=document.getElementById('bundle-session').value,bid=document.getElementById('bundle-id').value;out.textContent=JSON.stringify(await api('/api/sessions/'+sid+'/bundles',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({bundle_id:bid})}),null,2)}catch(e){out.textContent=e}}
-    async function temporalCapture(){try{out.textContent='Warming four live streams…';const bundle_id=document.getElementById('temporal-bundle-id').value,max_skew_ms=Number(document.getElementById('max-skew-ms').value);out.textContent=JSON.stringify(await api('/api/temporal-capture',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({bundle_id,max_skew_ms,warmup_seconds:15})}),null,2)}catch(e){out.textContent=e}}
-    health();
+    const grid=document.getElementById('cameras');
+    const loadButton=document.getElementById('load');
+    const summary=document.getElementById('summary');
+    const objectUrls=new Map();
+    let cameraIds=[];
+
+    function cameraName(id){
+      const match=id.match(/^office-cam-(\d+)$/);
+      return match ? `Office camera ${Number(match[1])}` : id;
+    }
+
+    function setCard(id,state,message,imageUrl){
+      const card=document.getElementById(`camera-${id}`);
+      card.className=`card ${state}`;
+      card.querySelector('.status-text').textContent=state==='ready'?'Ready':state==='failed'?'Unavailable':state==='checking'?'Checking…':'Not checked';
+      card.querySelector('.detail').textContent=message;
+      const preview=card.querySelector('.preview');
+      if(imageUrl){
+        preview.innerHTML='';
+        const image=document.createElement('img');
+        image.alt=`Live preview from ${cameraName(id)}`;
+        image.src=imageUrl;
+        preview.appendChild(image);
+      }else if(state!=='ready'){
+        preview.textContent=state==='checking'?'Loading live frame…':'No live preview';
+      }
+    }
+
+    function renderCards(){
+      grid.innerHTML=cameraIds.map(id=>`<section id="camera-${id}" class="card idle"><div class="preview">No live preview</div><div class="body"><div class="camera">${cameraName(id)}</div><div class="status"><span class="dot"></span><span class="status-text">Not checked</span></div><div class="detail">Select “Load live previews” to check this camera.</div></div></section>`).join('');
+    }
+
+    async function loadCamera(id){
+      setCard(id,'checking','Connecting to the camera…');
+      try{
+        const response=await fetch(`/api/cameras/${encodeURIComponent(id)}/preview?nonce=${Date.now()}`,{cache:'no-store'});
+        if(!response.ok) throw new Error('preview unavailable');
+        const previous=objectUrls.get(id);
+        if(previous) URL.revokeObjectURL(previous);
+        const imageUrl=URL.createObjectURL(await response.blob());
+        objectUrls.set(id,imageUrl);
+        const observed=response.headers.get('X-P03-Observed-At');
+        setCard(id,'ready',observed ? `Live frame received ${new Date(observed).toLocaleString()}` : 'Live frame received.',imageUrl);
+        return true;
+      }catch(_error){
+        setCard(id,'failed','Could not load a live frame. Check the camera and try again.');
+        return false;
+      }
+    }
+
+    async function loadAll(){
+      loadButton.disabled=true;
+      summary.className='';
+      summary.textContent=`Checking ${cameraIds.length} cameras…`;
+      const results=await Promise.all(cameraIds.map(loadCamera));
+      const ready=results.filter(Boolean).length;
+      summary.className=ready===cameraIds.length?'ready':'failed';
+      summary.textContent=ready===cameraIds.length ? `${ready} of ${cameraIds.length} cameras are ready.` : `${ready} of ${cameraIds.length} cameras are ready. ${cameraIds.length-ready} need attention.`;
+      loadButton.disabled=false;
+      loadButton.textContent='Refresh live previews';
+    }
+
+    async function initialise(){
+      try{
+        const response=await fetch('/api/cameras',{cache:'no-store'});
+        if(!response.ok) throw new Error('camera roster unavailable');
+        cameraIds=(await response.json()).cameras;
+        renderCards();
+      }catch(_error){
+        summary.className='failed';
+        summary.textContent='The camera list could not be loaded. Refresh this page to try again.';
+        loadButton.disabled=true;
+      }
+    }
+
+    loadButton.addEventListener('click',loadAll);
+    initialise();
   </script>
-</main></body></html>
+</body>
+</html>
