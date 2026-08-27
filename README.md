@@ -125,6 +125,42 @@ connectivity or client-acceptance geometry.
 
 See [the sanitized P08 summary](docs/stages/P08/PUBLIC_SUMMARY.md).
 
+### P09 - Live anonymous person XY demonstrator
+
+P09 added a CUDA-only YOLO11 person-detection boundary, camera-ray/floor-plane projection,
+latest-frame processing, anonymous single-person fusion, honest unknown/ambiguity states and a
+Rerun live-review surface. Dynamic DA3 inference is deliberately absent from the live loop.
+
+P09 is accepted only as a bounded internal-R&D demonstrator. It does not establish persistent
+identity, multi-person tracking, survey accuracy, safety use or production monitoring. Private
+office inputs and retained trial artifacts are not published.
+
+See [the sanitized P09 summary](docs/stages/P09/PUBLIC_SUMMARY.md).
+
+### XR02 - Multi-camera multi-person tracking workstream
+
+XR02 adds supervised RTSP/MediaMTX ingress, latest-only local tracking, BoT-SORT/OSNet evidence,
+accepted floor-XY localization, scene-global anonymous IDs, deterministic replay, explicit
+lifecycle/ambiguity states, operator controls and Rerun presentation. Its project-owned source,
+synthetic fixtures and tests are included without private media, coordinates, weights or trials.
+
+XR02 is accepted for bounded internal R&D only. Formal XY/MOT metrics, an 8 Hz sustained target,
+long soak and live forty-camera scale remain unproven; the forty-camera result is metadata/scene
+partition evidence only.
+
+See [the sanitized XR02 summary](docs/workstreams/XR02/PUBLIC_SUMMARY.md).
+
+## Tracking source setup
+
+The public launchers use `SPATIAL_MAPPING_ARTIFACT_ROOT` (default `./runtime_data`) and never embed
+owner-local paths. Populate its `inputs/`, `model_weights/`, `bin/` and `runs/` subdirectories with
+your own lawful, reviewed artifacts. Copy `.env.example` to an untracked `.env` for RTSP endpoints.
+
+The accepted Windows/CUDA dependency identities are recorded in
+`requirements/xr02-windows-cu124-direct.lock`. Model weights and third-party binaries are not
+downloaded automatically or redistributed. The launchers fail closed when required source/model or
+accepted-scene hashes do not match.
+
 ## Repository layout
 
 | Location | Purpose |
@@ -138,22 +174,22 @@ See [the sanitized P08 summary](docs/stages/P08/PUBLIC_SUMMARY.md).
 
 ## Validation
 
-The P08 snapshot passed:
-
-```text
-252 tests passed
-Ruff passed
-strict mypy passed across 77 source and test files
-```
+This P09/XR02 snapshot passed 364 tests, Ruff lint, formatting checks across all 63 published
+P09/XR02 Python files, strict mypy across 128 source/test files plus the three P09 and six current
+XR02 scripts, and `git diff --check`. A release scan covered all 217 candidate files: no prohibited
+media/model artifact, private network address, owner-local runtime path or file over 1 MiB is
+included. Credential-shaped RTSP strings are confined to synthetic redaction tests using reserved
+example hosts and documentation addresses.
 
 Model weights, raw outputs, client media, floor-plan derivatives, RTSP credentials, endpoint
 values, owner-local manifests and artifact stores are not included.
 
 ## Scope and licensing
 
-This repository describes non-commercial R&D. DA3 source and model assets are governed by their
-upstream licences; the pinned Nested checkpoint is recorded as CC BY-NC 4.0. No DA3 weights are
-redistributed here. Review every upstream dependency and model licence before commercial use.
+Project-owned source in this repository is released under the GNU Affero General Public License,
+version 3. Ultralytics and BoxMOT are used through their AGPL-3.0 paths; source and licence notices
+must remain available to network users and downstream recipients.
 
-Unless a separate licence file is added, the project-owned material in this repository is not
-offered under an additional open-source licence.
+DA3 and all model assets remain governed by their upstream terms. No DA3, YOLO or OSNet weights are
+redistributed here. Review [the public source and third-party notices](docs/PUBLIC_RELEASE_COMPLIANCE.md)
+before reuse, distribution or commercial deployment.

@@ -1,0 +1,73 @@
+{
+  "schema": "xr02.wp3.labelled_replay.v1",
+  "partition": "heldout",
+  "scene_context_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+  "scenarios": [
+    {
+      "scenario_id": "crossing-camera-handoff",
+      "description": "Distinct appearance should prevent a spatial-only identity swap during a crossing and camera handoff.",
+      "ticks": [
+        {"time_ns":1000000000,"observations":[
+          {"observation_id":"cross.a0","anonymous_ground_truth_id":"anon-a","camera_id":"office-cam-01","local_track_stable_id":"fixture:cam01:a","tracker_profile":"fixture-v1","world_xy_metres":[0.0,0.0],"embedding":[1.0,0.0]},
+          {"observation_id":"cross.b0","anonymous_ground_truth_id":"anon-b","camera_id":"office-cam-01","local_track_stable_id":"fixture:cam01:b","tracker_profile":"fixture-v1","world_xy_metres":[4.0,0.0],"embedding":[0.0,1.0]}
+        ]},
+        {"time_ns":2000000000,"observations":[
+          {"observation_id":"cross.a1","anonymous_ground_truth_id":"anon-a","camera_id":"office-cam-01","local_track_stable_id":"fixture:cam01:a","tracker_profile":"fixture-v1","world_xy_metres":[1.0,0.0],"embedding":[1.0,0.0]},
+          {"observation_id":"cross.b1","anonymous_ground_truth_id":"anon-b","camera_id":"office-cam-01","local_track_stable_id":"fixture:cam01:b","tracker_profile":"fixture-v1","world_xy_metres":[3.0,0.0],"embedding":[0.0,1.0]}
+        ]},
+        {"time_ns":3000000000,"observations":[
+          {"observation_id":"cross.a2","anonymous_ground_truth_id":"anon-a","camera_id":"office-cam-02","local_track_stable_id":"fixture:cam02:a","tracker_profile":"fixture-v1","world_xy_metres":[2.8,0.0],"embedding":[1.0,0.0]},
+          {"observation_id":"cross.b2","anonymous_ground_truth_id":"anon-b","camera_id":"office-cam-02","local_track_stable_id":"fixture:cam02:b","tracker_profile":"fixture-v1","world_xy_metres":[1.2,0.0],"embedding":[0.0,1.0]}
+        ]}
+      ]
+    },
+    {
+      "scenario_id": "appearance-collision-spatial-separation",
+      "description": "Indistinguishable fixture embeddings require spatial evidence and must not be appearance-forced.",
+      "ticks": [
+        {"time_ns":1000000000,"observations":[
+          {"observation_id":"similar.c0","anonymous_ground_truth_id":"anon-c","camera_id":"office-cam-01","local_track_stable_id":"fixture:cam01:c","tracker_profile":"fixture-v1","world_xy_metres":[0.0,2.0],"embedding":[1.0,1.0]},
+          {"observation_id":"similar.d0","anonymous_ground_truth_id":"anon-d","camera_id":"office-cam-01","local_track_stable_id":"fixture:cam01:d","tracker_profile":"fixture-v1","world_xy_metres":[5.0,2.0],"embedding":[1.0,1.0]}
+        ]},
+        {"time_ns":2000000000,"observations":[
+          {"observation_id":"similar.c1","anonymous_ground_truth_id":"anon-c","camera_id":"office-cam-03","local_track_stable_id":"fixture:cam03:c","tracker_profile":"fixture-v1","world_xy_metres":[0.5,2.0],"embedding":[1.0,1.0]},
+          {"observation_id":"similar.d1","anonymous_ground_truth_id":"anon-d","camera_id":"office-cam-03","local_track_stable_id":"fixture:cam03:d","tracker_profile":"fixture-v1","world_xy_metres":[4.5,2.0],"embedding":[1.0,1.0]}
+        ]}
+      ]
+    },
+    {
+      "scenario_id": "overlap-deduplication",
+      "description": "Two anonymous people seen by overlapping cameras deduplicate pairwise without a cross-person merge.",
+      "ticks": [
+        {"time_ns":1000000000,"observations":[
+          {"observation_id":"overlap.a1","anonymous_ground_truth_id":"anon-a","camera_id":"office-cam-01","local_track_stable_id":"fixture:cam01:a","tracker_profile":"fixture-v1","world_xy_metres":[1.0,5.0],"embedding":[1.0,0.0]},
+          {"observation_id":"overlap.a2","anonymous_ground_truth_id":"anon-a","camera_id":"office-cam-02","local_track_stable_id":"fixture:cam02:a","tracker_profile":"fixture-v1","world_xy_metres":[1.2,5.1],"embedding":[1.0,0.0]},
+          {"observation_id":"overlap.b1","anonymous_ground_truth_id":"anon-b","camera_id":"office-cam-01","local_track_stable_id":"fixture:cam01:b","tracker_profile":"fixture-v1","world_xy_metres":[6.0,5.0],"embedding":[0.0,1.0]},
+          {"observation_id":"overlap.b3","anonymous_ground_truth_id":"anon-b","camera_id":"office-cam-03","local_track_stable_id":"fixture:cam03:b","tracker_profile":"fixture-v1","world_xy_metres":[5.8,5.1],"embedding":[0.0,1.0]}
+        ]}
+      ]
+    },
+    {
+      "scenario_id": "honest-ambiguous-reappearance",
+      "description": "An equidistant, mixed-appearance reappearance remains unknown instead of forcing continuity.",
+      "ticks": [
+        {"time_ns":1000000000,"observations":[
+          {"observation_id":"amb.a0","anonymous_ground_truth_id":"anon-a","camera_id":"office-cam-01","local_track_stable_id":"fixture:cam01:a","tracker_profile":"fixture-v1","world_xy_metres":[-1.0,8.0],"embedding":[1.0,0.0]},
+          {"observation_id":"amb.b0","anonymous_ground_truth_id":"anon-b","camera_id":"office-cam-01","local_track_stable_id":"fixture:cam01:b","tracker_profile":"fixture-v1","world_xy_metres":[1.0,8.0],"embedding":[0.0,1.0]}
+        ]},
+        {"time_ns":2000000000,"observations":[
+          {"observation_id":"amb.a1","anonymous_ground_truth_id":"anon-a","camera_id":"office-cam-02","local_track_stable_id":"fixture:cam02:unknown","tracker_profile":"fixture-v1","world_xy_metres":[0.0,8.0],"embedding":[1.0,1.0]}
+        ]}
+      ]
+    },
+    {
+      "scenario_id": "bounded-isolated-camera-reacquisition",
+      "description": "A short, spatially plausible reappearance on isolated camera 4 may retain an anonymous identity.",
+      "ticks": [
+        {"time_ns":1000000000,"observations":[{"observation_id":"isolated.a0","anonymous_ground_truth_id":"anon-a","camera_id":"office-cam-01","local_track_stable_id":"fixture:cam01:a","tracker_profile":"fixture-v1","world_xy_metres":[8.0,1.0],"embedding":[1.0,0.0]}]},
+        {"time_ns":2000000000,"observations":[]},
+        {"time_ns":3500000000,"observations":[{"observation_id":"isolated.a1","anonymous_ground_truth_id":"anon-a","camera_id":"office-cam-04","local_track_stable_id":"fixture:cam04:a","tracker_profile":"fixture-v1","world_xy_metres":[8.4,1.0],"embedding":[1.0,0.0]}]}
+      ]
+    }
+  ]
+}

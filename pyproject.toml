@@ -8,10 +8,22 @@ version = "0.1.0"
 description = "Low-touch, facility-coordinate DA3 reconstruction from fixed CCTV cameras"
 readme = "README.md"
 requires-python = ">=3.11,<3.12"
+license = { file = "LICENSE" }
 dependencies = [
     "fastapi>=0.141,<1",
+    "numpy>=2.2,<3",
+    "opencv-python>=4.11,<5",
     "pymupdf>=1.24,<2",
+    "scipy>=1.15,<2",
     "uvicorn>=0.52,<1",
+]
+
+[project.optional-dependencies]
+tracking = [
+    "av==16.0.1",
+    "rerun-sdk==0.22.1",
+    "supervision==0.30.0",
+    "ultralytics==8.4.123",
 ]
 
 [dependency-groups]

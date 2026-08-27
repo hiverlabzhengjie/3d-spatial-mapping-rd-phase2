@@ -1,0 +1,45 @@
+{
+  "schema": "xr02.wp3.labelled_replay.v1",
+  "partition": "tuning",
+  "scene_context_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+  "scenarios": [
+    {
+      "scenario_id": "complete-link-chain",
+      "description": "A transitive spatial chain must not collapse into one three-camera identity.",
+      "ticks": [
+        {
+          "time_ns": 1000000000,
+          "observations": [
+            {"observation_id":"chain.a1","anonymous_ground_truth_id":"anon-a","camera_id":"office-cam-01","local_track_stable_id":"fixture:cam01:a","tracker_profile":"fixture-v1","world_xy_metres":[0.0,0.0],"embedding":[1.0,0.0]},
+            {"observation_id":"chain.a2","anonymous_ground_truth_id":"anon-a","camera_id":"office-cam-02","local_track_stable_id":"fixture:cam02:a","tracker_profile":"fixture-v1","world_xy_metres":[0.9,0.0],"embedding":[1.0,0.0]},
+            {"observation_id":"chain.b3","anonymous_ground_truth_id":"anon-b","camera_id":"office-cam-03","local_track_stable_id":"fixture:cam03:b","tracker_profile":"fixture-v1","world_xy_metres":[1.8,0.0],"embedding":[1.0,0.0]}
+          ]
+        }
+      ]
+    },
+    {
+      "scenario_id": "same-camera-cannot-link",
+      "description": "Two close detections in one camera remain distinct regardless of appearance.",
+      "ticks": [
+        {
+          "time_ns": 1000000000,
+          "observations": [
+            {"observation_id":"same.a","anonymous_ground_truth_id":"anon-a","camera_id":"office-cam-01","local_track_stable_id":"fixture:cam01:a","tracker_profile":"fixture-v1","world_xy_metres":[2.0,2.0],"embedding":[1.0,0.0]},
+            {"observation_id":"same.b","anonymous_ground_truth_id":"anon-b","camera_id":"office-cam-01","local_track_stable_id":"fixture:cam01:b","tracker_profile":"fixture-v1","world_xy_metres":[2.1,2.0],"embedding":[1.0,0.0]}
+          ]
+        }
+      ]
+    },
+    {
+      "scenario_id": "bounded-reacquisition-lifecycle",
+      "description": "One anonymous identity becomes lost, reacquires within the bound, then ends.",
+      "ticks": [
+        {"time_ns":1000000000,"observations":[{"observation_id":"life.a0","anonymous_ground_truth_id":"anon-a","camera_id":"office-cam-01","local_track_stable_id":"fixture:cam01:a","tracker_profile":"fixture-v1","world_xy_metres":[1.0,1.0],"embedding":[1.0,0.0]}]},
+        {"time_ns":2200000000,"observations":[]},
+        {"time_ns":4000000000,"observations":[{"observation_id":"life.a1","anonymous_ground_truth_id":"anon-a","camera_id":"office-cam-03","local_track_stable_id":"fixture:cam03:a","tracker_profile":"fixture-v1","world_xy_metres":[1.3,1.0],"embedding":[1.0,0.0]}]},
+        {"time_ns":6000000000,"observations":[]},
+        {"time_ns":9000000000,"observations":[]}
+      ]
+    }
+  ]
+}

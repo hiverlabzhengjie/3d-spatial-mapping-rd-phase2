@@ -1,0 +1,17 @@
+# Direct dependency identities used for the accepted Windows/GTX-1080-Ti R&D profile.
+# Install PyTorch wheels from the official cu124 index before installing the remaining lines.
+--extra-index-url https://download.pytorch.org/whl/cu124
+
+torch==2.4.1+cu124
+torchvision==0.19.1+cu124
+av==16.0.1
+numpy==2.2.6
+opencv-python==4.11.0.86
+rerun-sdk==0.22.1
+scipy==1.17.1
+supervision==0.30.0
+ultralytics==8.4.123
+
+# The accepted source checkout identified itself as BoxMOT v22.0.0 at this commit, although its
+# installed distribution metadata reported 21.0.0.
+boxmot @ git+https://github.com/mikel-brostrom/boxmot.git@8f8babc5302024b13db7e7faeb50b3da55d1e815
