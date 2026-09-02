@@ -33,6 +33,7 @@ STREAM_PROFILE_SCHEMA_VERSION = "p01-stream-profile-v1"
 CAPTURE_MANIFEST_SCHEMA_VERSION = "p01-diagnostic-capture-v1"
 MAX_DIAGNOSTIC_DURATION_SECONDS = 15.0
 _CAMERA_ID_PATTERN = re.compile(r"^office-cam-0[1-4]$")
+_SCENE_CAMERA_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
 _PROFILE_VERSION_PATTERN = re.compile(r"^stream-profile-v[1-9][0-9]*$")
 
 
@@ -112,6 +113,18 @@ def _validate_rtsp_url(endpoint_url: str, endpoint_key: str) -> str:
     if parsed.scheme.lower() not in {"rtsp", "rtsps"} or parsed.hostname is None:
         raise EndpointConfigurationError(f"{endpoint_key} is malformed")
     return endpoint_url
+
+
+def validate_scene_rtsp_endpoint(
+    camera_id: str, endpoint_key: str, endpoint_url: str
+) -> None:
+    """Validate a credential-bearing endpoint for a registered variable-roster scene."""
+
+    if not _SCENE_CAMERA_ID_PATTERN.fullmatch(camera_id):
+        raise P01ContractError("camera_id is malformed")
+    if not endpoint_key or any(character.isspace() for character in endpoint_key):
+        raise EndpointConfigurationError("camera endpoint environment key is malformed")
+    _validate_rtsp_url(endpoint_url, endpoint_key)
 
 
 @dataclass(frozen=True, slots=True, repr=False)

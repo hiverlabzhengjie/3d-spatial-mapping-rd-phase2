@@ -38,4 +38,3 @@ class TimestampTransform:
         if not math.isfinite(capture_timestamp) or capture_timestamp < 0:
             raise ValueError("mapped capture timestamp must be finite and non-negative")
         return capture_timestamp
-

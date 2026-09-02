@@ -24,6 +24,13 @@ class ScaleSourceKind(StrEnum):
     PHYSICAL_CHECK = "physical-check"
 
 
+class ScaleAxis(StrEnum):
+    """Plan-display direction represented by one independent physical scale check."""
+
+    HORIZONTAL = "horizontal"
+    VERTICAL = "vertical"
+
+
 class CameraRegistrationStatus(StrEnum):
     UNPLACED = "unplaced"
     PLACED = "placed"
@@ -100,6 +107,7 @@ class ScaleControl:
     distance_metres: float
     distance_uncertainty_metres: float
     source_kind: ScaleSourceKind
+    axis: ScaleAxis = ScaleAxis.HORIZONTAL
 
     def __post_init__(self) -> None:
         _require_id(self.control_id, "scale control_id")
@@ -121,14 +129,27 @@ class ScaleControl:
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> ScaleControl:
+        point_a = PixelPoint.from_dict(_object(payload, "point_a", "scale control"), "point_a")
+        point_b = PixelPoint.from_dict(_object(payload, "point_b", "scale control"), "point_b")
+        axis_value = payload.get("axis")
+        if axis_value is None:
+            axis = _infer_legacy_scale_axis(point_a, point_b)
+        else:
+            try:
+                axis = ScaleAxis(_string(payload, "axis", "scale control"))
+            except ValueError as error:
+                raise InteractiveRegistrationError(
+                    "scale control.axis must be horizontal or vertical"
+                ) from error
         return cls(
             _string(payload, "control_id", "scale control"),
             _string(payload, "meaning", "scale control"),
-            PixelPoint.from_dict(_object(payload, "point_a", "scale control"), "point_a"),
-            PixelPoint.from_dict(_object(payload, "point_b", "scale control"), "point_b"),
+            point_a,
+            point_b,
             _number(payload, "distance_metres", "scale control"),
             _number(payload, "distance_uncertainty_metres", "scale control"),
             ScaleSourceKind(_string(payload, "source_kind", "scale control")),
+            axis,
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -140,6 +161,7 @@ class ScaleControl:
             "distance_metres": self.distance_metres,
             "distance_uncertainty_metres": self.distance_uncertainty_metres,
             "source_kind": self.source_kind.value,
+            "axis": self.axis.value,
         }
 
 
@@ -205,8 +227,8 @@ class CameraPlacement:
     rough_pan_endpoint: PixelPoint | None
 
     def __post_init__(self) -> None:
-        if self.camera_id not in CAMERA_IDS:
-            raise InteractiveRegistrationError("camera_id must identify one fixed office camera")
+        if not _ID_PATTERN.fullmatch(self.camera_id):
+            raise InteractiveRegistrationError("camera_id must be a lowercase stable identifier")
         if self.physical_label:
             _require_non_blank(self.physical_label, "physical label")
         if self.reference_meaning:
@@ -281,13 +303,19 @@ class InteractiveRegistrationState:
             raise InteractiveRegistrationError("unsupported interactive registration schema")
         if self.revision < 0:
             raise InteractiveRegistrationError("revision must be non-negative")
-        if tuple(camera.camera_id for camera in self.cameras) != CAMERA_IDS:
+        camera_ids = tuple(camera.camera_id for camera in self.cameras)
+        if not camera_ids or len(set(camera_ids)) != len(camera_ids):
             raise InteractiveRegistrationError(
-                "registration must contain the four cameras in order"
+                "registration must contain at least one uniquely identified camera"
             )
         control_ids = [control.control_id for control in self.scale_controls]
         if len(control_ids) != len(set(control_ids)):
             raise InteractiveRegistrationError("scale control IDs must be unique")
+        control_axes = [control.axis for control in self.scale_controls]
+        if len(control_axes) != len(set(control_axes)):
+            raise InteractiveRegistrationError(
+                "registration supports exactly one horizontal and one vertical scale control"
+            )
         labels = [camera.physical_label for camera in self.cameras if camera.physical_label]
         if len(labels) != len(set(labels)):
             raise InteractiveRegistrationError("non-empty physical camera labels must be unique")
@@ -312,25 +340,37 @@ class InteractiveRegistrationState:
 
     @property
     def pixels_per_metre(self) -> float | None:
-        if not self.scale_controls:
+        horizontal = self.pixels_per_metre_for_axis(ScaleAxis.HORIZONTAL)
+        vertical = self.pixels_per_metre_for_axis(ScaleAxis.VERTICAL)
+        if horizontal is None or vertical is None:
             return None
-        return sum(control.pixels_per_metre for control in self.scale_controls) / len(
-            self.scale_controls
+        return (horizontal + vertical) / 2.0
+
+    def pixels_per_metre_for_axis(self, axis: ScaleAxis) -> float | None:
+        return next(
+            (control.pixels_per_metre for control in self.scale_controls if control.axis is axis),
+            None,
         )
 
     @property
+    def missing_scale_axes(self) -> tuple[ScaleAxis, ...]:
+        available = {control.axis for control in self.scale_controls}
+        return tuple(axis for axis in ScaleAxis if axis not in available)
+
+    @property
     def scale_spread_fraction(self) -> float | None:
-        if len(self.scale_controls) < 2:
+        horizontal = self.pixels_per_metre_for_axis(ScaleAxis.HORIZONTAL)
+        vertical = self.pixels_per_metre_for_axis(ScaleAxis.VERTICAL)
+        if horizontal is None or vertical is None:
             return None
-        values = [control.pixels_per_metre for control in self.scale_controls]
-        average = sum(values) / len(values)
-        return (max(values) - min(values)) / average
+        average = (horizontal + vertical) / 2.0
+        return abs(horizontal - vertical) / average
 
     def world_xy_from_pixel(self, point: PixelPoint) -> tuple[float, float]:
         pixels_per_metre = self.pixels_per_metre
         if pixels_per_metre is None or self.frame is None:
             raise InteractiveRegistrationError(
-                "metric XY requires at least one scale control and a placed facility frame"
+                "metric XY requires horizontal and vertical scale controls plus a facility frame"
             )
         delta_u = point.u - self.frame.origin.u
         delta_v = point.v - self.frame.origin.v
@@ -375,11 +415,13 @@ class InteractiveRegistrationState:
         }
 
 
-def empty_registration(plan: PlanMetadata) -> InteractiveRegistrationState:
+def empty_registration(
+    plan: PlanMetadata, camera_ids: tuple[str, ...] = CAMERA_IDS
+) -> InteractiveRegistrationState:
     """Create a clean editable state for a newly uploaded immutable source plan."""
 
     cameras = tuple(
-        CameraPlacement(camera_id, "", None, None, None, "", None) for camera_id in CAMERA_IDS
+        CameraPlacement(camera_id, "", None, None, None, "", None) for camera_id in camera_ids
     )
     return InteractiveRegistrationState(
         INTERACTIVE_REGISTRATION_SCHEMA_VERSION,
@@ -392,13 +434,15 @@ def empty_registration(plan: PlanMetadata) -> InteractiveRegistrationState:
 
 
 def build_interactive_export(
-    state: InteractiveRegistrationState, endpoint_configured: dict[str, bool]
+    state: InteractiveRegistrationState,
+    endpoint_configured: dict[str, bool],
+    endpoint_environment_keys: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """Build a credential-free facility-frame and provisional mounting-prior snapshot."""
 
     if state.frame is None or state.pixels_per_metre is None:
         raise InteractiveRegistrationError(
-            "export requires scale calibration and a facility frame"
+            "export requires horizontal and vertical scale controls plus a facility frame"
         )
     frame = state.frame
     pixels_per_metre = state.pixels_per_metre
@@ -452,7 +496,9 @@ def build_interactive_export(
                 "horizontal_uncertainty_metres": None,
                 "rough_pan_vector_world_xy": pan_vector,
                 "rough_pan_authority": "display-only owner estimate; not a pose constraint",
-                "endpoint_environment_key": CAMERA_ENDPOINT_KEYS[camera.camera_id],
+                "endpoint_environment_key": (endpoint_environment_keys or CAMERA_ENDPOINT_KEYS)[
+                    camera.camera_id
+                ],
                 "endpoint_configured": configured,
                 "authority_note": "physical mounting reference prior; not optical centre or pose",
             }
@@ -460,6 +506,7 @@ def build_interactive_export(
     residuals = [
         {
             "control_id": control.control_id,
+            "axis": control.axis.value,
             "implied_distance_metres": control.pixel_length / pixels_per_metre,
             "stated_distance_metres": control.distance_metres,
             "residual_metres": control.pixel_length / pixels_per_metre - control.distance_metres,
@@ -482,6 +529,9 @@ def build_interactive_export(
         },
         "scale_calibration": {
             "pixels_per_metre": pixels_per_metre,
+            "horizontal_pixels_per_metre": state.pixels_per_metre_for_axis(ScaleAxis.HORIZONTAL),
+            "vertical_pixels_per_metre": state.pixels_per_metre_for_axis(ScaleAxis.VERTICAL),
+            "aggregation": "arithmetic-mean-of-horizontal-and-vertical",
             "control_count": len(state.scale_controls),
             "scale_spread_fraction": state.scale_spread_fraction,
             "controls": [control.to_dict() for control in state.scale_controls],
@@ -493,6 +543,18 @@ def build_interactive_export(
         },
         "camera_mounting_priors": cameras,
     }
+
+
+def _infer_legacy_scale_axis(point_a: PixelPoint, point_b: PixelPoint) -> ScaleAxis:
+    """Load v1 records without an axis while making the migration deterministic and visible."""
+
+    delta_u = abs(point_b.u - point_a.u)
+    delta_v = abs(point_b.v - point_a.v)
+    if math.isclose(delta_u, delta_v, rel_tol=0.0, abs_tol=1e-9):
+        raise InteractiveRegistrationError(
+            "legacy diagonal scale control needs an explicit horizontal or vertical axis"
+        )
+    return ScaleAxis.HORIZONTAL if delta_u > delta_v else ScaleAxis.VERTICAL
 
 
 def _typed_object(value: Any, field_name: str) -> dict[str, Any]:

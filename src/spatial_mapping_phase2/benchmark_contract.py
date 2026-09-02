@@ -88,4 +88,3 @@ class BenchmarkRunManifest:
         """Return a JSON-ready representation after complete validation."""
         self.validate()
         return asdict(self)
-

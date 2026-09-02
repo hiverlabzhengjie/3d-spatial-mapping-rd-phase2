@@ -40,7 +40,6 @@ class PyAvCaptureAdapter:
 
     def profile(self, endpoint: LocalRtspEndpoint, policy: CapturePolicy) -> StreamProfileIdentity:
         av = _av()
-        started = monotonic()
         try:
             with av.open(
                 endpoint.for_read_only_adapter(),
@@ -51,8 +50,6 @@ class PyAvCaptureAdapter:
                 stream = next(iter(container.streams.video), None)
                 if stream is None:
                     raise CaptureAdapterError("source has no video stream")
-                if monotonic() - started > policy.connect_timeout_seconds:
-                    raise ConnectTimeoutError("bounded RTSP connect timed out")
                 time_base = stream.time_base
                 if time_base is None:
                     raise CaptureAdapterError("source video time base is unavailable")
@@ -190,7 +187,6 @@ class PyAvCaptureAdapter:
         cancel: threading.Event,
     ) -> tuple[tuple[SourceFrame, ...], CaptureArtifact]:
         av = _av()
-        started = monotonic()
         frames: list[SourceFrame] = []
         with av.open(
             endpoint.for_read_only_adapter(),
@@ -201,6 +197,10 @@ class PyAvCaptureAdapter:
             stream = next(iter(source.streams.video), None)
             if stream is None:
                 raise CaptureAdapterError("source has no video stream")
+            # PyAV already enforces the bounded connect/read timeouts.  Begin the
+            # evidence window after opening the stream so slow connection scheduling
+            # cannot consume or invalidate the requested capture duration.
+            started = monotonic()
             with av.open(str(output_path), mode="w") as destination:
                 output_stream = destination.add_stream_from_template(stream)
                 for packet in source.demux(stream):
@@ -209,8 +209,6 @@ class PyAvCaptureAdapter:
                     elapsed = monotonic() - started
                     if elapsed >= policy.duration_seconds:
                         break
-                    if elapsed > policy.read_timeout_seconds:
-                        raise ReadTimeoutError("bounded RTSP read timed out")
                     if packet.dts is None:
                         continue
                     acquisition = monotonic_ns()

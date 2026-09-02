@@ -45,4 +45,3 @@ def validate_supporting_stack_result(result: Mapping[str, Any]) -> None:
         raise SupportingStackContractError(
             f"The supporting-stack result records failed component(s): {', '.join(failed)}."
         )
-

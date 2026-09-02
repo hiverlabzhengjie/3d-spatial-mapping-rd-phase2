@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import time
 import urllib.error
 import urllib.request
@@ -73,9 +74,11 @@ from spatial_mapping_phase2.xr02_wp4 import (
     WP4_REQUIRED_RUNTIME,
     _environment,
     _write_json,
+    apply_offline_model_controls,
     validate_wp4_runtime,
 )
 from spatial_mapping_phase2.xr02_wp4_verification import _verify_trial_recording
+from spatial_mapping_phase2.xr03_live_operations import XR02WorkerClient
 
 
 def test_scene_resolution_binds_exact_approved_inputs(tmp_path: Path) -> None:
@@ -121,19 +124,30 @@ def test_environment_and_json_evidence_never_emit_rtsp_values(tmp_path: Path) ->
 
 
 def test_wp4_runtime_preflight_rejects_wrong_python(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("spatial_mapping_phase2.xr02_wp4.sys.executable", r"C:\wrong\python.exe")
-    with pytest.raises(RuntimeError, match="must be launched with"):
+    monkeypatch.setattr("spatial_mapping_phase2.xr02_wp4.sys.version_info", (3, 10, 0))
+    with pytest.raises(RuntimeError, match="Python 3.11 is required"):
         validate_wp4_runtime()
+
+
+def test_offline_model_controls_override_unsafe_inherited_values(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("HF_HUB_OFFLINE", "0")
+    monkeypatch.setenv("TRANSFORMERS_OFFLINE", "0")
+    monkeypatch.setenv("YOLO_OFFLINE", "0")
+    monkeypatch.setenv("YOLO_CONFIG_DIR", str(tmp_path / "wrong"))
+
+    apply_offline_model_controls(tmp_path / "ultralytics")
+
+    assert os.environ["HF_HUB_OFFLINE"] == "1"
+    assert os.environ["TRANSFORMERS_OFFLINE"] == "1"
+    assert os.environ["YOLO_OFFLINE"] == "1"
+    assert os.environ["YOLO_CONFIG_DIR"] == str((tmp_path / "ultralytics").resolve())
 
 
 def test_wp4_runtime_preflight_rejects_missing_boxmot(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(
-        "spatial_mapping_phase2.xr02_wp4.sys.executable",
-        str(wp4_module.WP4_PINNED_PYTHON),
-    )
-
     def fake_version(distribution: str) -> str:
         if distribution == "boxmot":
             raise PackageNotFoundError(distribution)
@@ -170,14 +184,81 @@ def test_operator_console_success_and_failure_routes() -> None:
         with pytest.raises(urllib.error.HTTPError) as captured:
             urllib.request.urlopen(urllib.request.Request(server.url + "api/start", method="POST"))
         assert captured.value.code == 409
+        urllib.request.urlopen(urllib.request.Request(server.url + "api/stop", method="POST"))
+        save = urllib.request.Request(
+            server.url + "api/save-recording",
+            data=json.dumps({"session_id": "fixture", "label": "Shift 1"}).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(save) as response:
+            assert json.loads(response.read())["operator_state"] == "ready"
+        with pytest.raises(urllib.error.HTTPError) as missing_body:
+            urllib.request.urlopen(
+                urllib.request.Request(server.url + "api/save-recording", method="POST")
+            )
+        assert missing_body.value.code == 409
         page = urllib.request.urlopen(server.url).read().decode("utf-8")
         assert "Open Rerun 3D" in page
-        assert "Trial replay capture" in page
-        assert "Explicit inference drops" in page
-        assert "pending-detail" in page
+        assert "Start Live Service" in page
+        assert "Start Replayable Recording" in page
+        assert "compact 1 Hz count/track/XY history" in page
+        assert "Diagnostics &amp; engineering controls" in page
         assert "?'\nNew scene" not in page
         assert "?'\\nNew scene" in page
         assert "rtsp://" not in page.lower()
+    finally:
+        server.close()
+
+
+def test_api_only_worker_requires_token_and_does_not_serve_operator_page() -> None:
+    controller = _FakeController()
+    server = XR02OperatorServer(
+        controller,
+        port=0,
+        api_token="fixture-token",
+        serve_page=False,
+    )
+    server.start(open_browser=False)
+    try:
+        with pytest.raises(urllib.error.HTTPError) as unauthorized:
+            urllib.request.urlopen(server.url + "api/status")
+        assert unauthorized.value.code == 401
+
+        request = urllib.request.Request(
+            server.url + "api/status",
+            headers={"X-XR02-Worker-Token": "fixture-token"},
+        )
+        with urllib.request.urlopen(request) as response:
+            assert json.loads(response.read())["operator_state"] == "ready"
+
+        with pytest.raises(urllib.error.HTTPError) as page:
+            urllib.request.urlopen(server.url)
+        assert page.value.code == 404
+    finally:
+        server.close()
+
+
+def test_integrated_worker_client_uses_authenticated_control_routes() -> None:
+    controller = _FakeController()
+    server = XR02OperatorServer(
+        controller,
+        port=0,
+        api_token="fixture-token",
+        serve_page=False,
+    )
+    server.start(open_browser=False)
+    client = XR02WorkerClient(server.url, "fixture-token")
+    try:
+        assert client.status()["operator_state"] == "ready"
+        assert (
+            client.start_live(
+                resumed_from_session_id="xr02-previous",
+                scene_update_id="auto-1",
+            )["active"]
+            is True
+        )
+        assert client.stop(reason="scheduled_scene_update")["operator_state"] == "ready"
     finally:
         server.close()
 
@@ -633,7 +714,22 @@ class _FakeController:
         self.running = True
         return self.status()
 
-    def stop(self) -> dict[str, object]:
+    def start_live(
+        self,
+        *,
+        resumed_from_session_id: str | None = None,
+        scene_update_id: str | None = None,
+    ) -> dict[str, object]:
+        if (resumed_from_session_id is None) != (scene_update_id is None):
+            raise RuntimeError("resume linkage must be complete")
+        return self.start()
+
+    def start_recording(self) -> dict[str, object]:
+        return self.start()
+
+    def stop(self, *, reason: str = "operator") -> dict[str, object]:
+        if not reason:
+            raise RuntimeError("stop reason required")
         self.running = False
         return self.status()
 
@@ -646,8 +742,34 @@ class _FakeController:
     def export_evidence_snapshot(self) -> dict[str, object]:
         return {"path": "evidence.json", "bytes": 1, "sha256": "a" * 64}
 
+    def view_recording(self, session_id: str) -> dict[str, object]:
+        if not session_id:
+            raise RuntimeError("session required")
+        return self.status()
+
+    def save_recording(self, session_id: str, label: str) -> dict[str, object]:
+        if not session_id or not label:
+            raise RuntimeError("session and label required")
+        return self.status()
+
+    def delete_recording(self, session_id: str, confirmation: str) -> dict[str, object]:
+        if confirmation != f"DELETE {session_id}":
+            raise RuntimeError("confirmation mismatch")
+        return self.status()
+
     def status(self) -> dict[str, object]:
-        return {"service": {"state": "running" if self.running else "stopped"}}
+        return {
+            "active": self.running,
+            "active_mode": "live" if self.running else None,
+            "operator_state": "live_running" if self.running else "ready",
+            "pending_run": None,
+            "saved_recordings": [],
+            "recent_live_runs": [],
+            "recording_available": True,
+            "storage": {"free_bytes": 1024},
+            "viewer_auto_open": {"eligible": False, "opened": False},
+            "service": {"state": "running" if self.running else "stopped"},
+        }
 
 
 class _FakeDecoder:

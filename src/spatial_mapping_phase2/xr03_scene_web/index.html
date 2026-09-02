@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Spatial mapping scenes</title>
+  <link rel="stylesheet" href="/scene-assets/styles.css">
+</head>
+<body>
+  <header class="app-header">
+    <a class="brand" href="/"><span>3D</span><div><strong>Spatial mapping</strong><small>Local operations console</small></div></a>
+    <div class="local-note">
+      <span>Runs on this computer only</span>
+      <a href="https://github.com/hiverlabzhengjie/3d-spatial-mapping-rd-phase2" target="_blank" rel="noreferrer">Source &amp; AGPL-3.0 licence</a>
+      <small>Internal R&amp;D · no warranty</small>
+    </div>
+  </header>
+  <main>
+    <section class="welcome">
+      <p class="eyebrow">Scenes</p>
+      <h1>Choose an environment</h1>
+      <p>Each scene keeps its own floor plan, cameras, processing history and Live operations.</p>
+      <button id="new-scene">Create a scene</button>
+    </section>
+    <section id="notice" class="notice hidden" role="status"></section>
+    <section id="resource-summary" class="resource-summary hidden"></section>
+    <section class="section-heading">
+      <div><h2>Your scenes</h2><p>Open scenes can continue independently. Heavy processing runs one at a time on this computer.</p></div>
+      <label class="archive-toggle"><input id="show-archived" type="checkbox"> Show archived</label>
+    </section>
+    <section id="scene-grid" class="scene-grid" aria-live="polite"></section>
+    <details class="advanced">
+      <summary>Register an existing scene</summary>
+      <p>For engineering migration only. This records the existing workspace in place and does not move or rewrite it.</p>
+      <form id="register-form"><label>Workspace folder<input id="existing-path" required placeholder="D:\...\workflow-workspace"></label><button type="submit" class="secondary">Register existing</button></form>
+    </details>
+  </main>
+
+  <dialog id="create-dialog">
+    <form id="create-form">
+      <button type="button" class="close" data-close="create-dialog" aria-label="Close">×</button>
+      <p class="eyebrow">New scene</p><h2>Start a separate environment</h2>
+      <label>Scene name<input id="scene-name" maxlength="80" required placeholder="e.g. Second office"></label>
+      <label>Number of cameras<input id="camera-count" type="number" min="1" max="64" value="4" required></label>
+      <div id="camera-names" class="camera-names"></div>
+      <p class="hint">Camera endpoints stay in this scene's local secret file and never enter scene history.</p>
+      <button type="submit">Create and open</button>
+    </form>
+  </dialog>
+
+  <dialog id="manage-dialog"><div id="manage-content"></div></dialog>
+  <script src="/scene-assets/app.js" defer></script>
+</body>
+</html>

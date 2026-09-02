@@ -9,11 +9,14 @@ import subprocess
 import tempfile
 import threading
 import time
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from spatial_mapping_phase2.p08_workflow import P08WorkflowError
+from spatial_mapping_phase2.runtime_environment import repository_source_environment
+from spatial_mapping_phase2.xr03_da3_policy import SceneDa3Cohort, SceneDa3PolicyError
 
 
 @dataclass(frozen=True)
@@ -118,20 +121,28 @@ class CameraInputSummaryAdapter:
 
 @dataclass(frozen=True)
 class ReconstructionWorkflowAdapter:
-    """Run the exact all-camera static DA3 and deterministic geometry export pipeline."""
+    """Run one complete scene cohort through DA3 and deterministic geometry export."""
 
     python_executable: Path
     repository_root: Path
-    p06_run_directory: Path
+    p06_run_directory: Path | None
     source_directory: Path
     checkpoint_directory: Path
-    d041_manifest_path: Path
+    d041_manifest_path: Path | None
     output_root: Path
     expected_geometry_sha256: str | None = None
+    process_resolution: int | None = None
+    input_readiness: Callable[[], Sequence[str]] | None = None
+    supports_scene_camera_policy: bool = True
 
     def readiness_errors(self) -> tuple[str, ...]:
-        checks = (
+        checks = [
             (self.python_executable, "Python runtime", True),
+            (
+                self.repository_root / "src" / "spatial_mapping_phase2",
+                "repository package source",
+                False,
+            ),
             (
                 self.repository_root / "scripts" / "run_p07_all4_da3_diagnostic.py",
                 "DA3 runner",
@@ -147,55 +158,100 @@ class ReconstructionWorkflowAdapter:
                 "geometry verifier",
                 True,
             ),
-            (self.p06_run_directory, "selected reconstruction inputs", False),
             (self.source_directory, "DA3 source", False),
             (self.checkpoint_directory, "DA3 checkpoint", False),
-            (self.d041_manifest_path, "rollback manifest", True),
-        )
+        ]
+        if self.p06_run_directory is not None:
+            checks.append((self.p06_run_directory, "selected reconstruction inputs", False))
+        if self.d041_manifest_path is not None:
+            checks.append((self.d041_manifest_path, "rollback manifest", True))
         errors: list[str] = []
         for path, label, must_be_file in checks:
             exists = path.is_file() if must_be_file else path.is_dir()
             if not exists:
                 errors.append(f"{label} is missing")
+        if self.input_readiness is not None:
+            errors.extend(str(error) for error in self.input_readiness())
         return tuple(errors)
 
-    def run(self, job_id: str, cancel_event: threading.Event) -> dict[str, Any]:
+    def run(
+        self,
+        job_id: str,
+        cancel_event: threading.Event,
+        *,
+        input_run_directory: Path | None = None,
+        process_resolution: int | None = None,
+        camera_ids: Sequence[str] | None = None,
+        camera_policy_sha256: str | None = None,
+    ) -> dict[str, Any]:
         errors = self.readiness_errors()
         if errors:
             raise P08WorkflowError("; ".join(errors))
+        selected_source = input_run_directory or self.p06_run_directory
+        if selected_source is None:
+            raise P08WorkflowError("scene reconstruction inputs have not been prepared")
+        selected_inputs = selected_source.resolve()
+        input_manifest = selected_inputs / "input-manifest.json"
+        run_manifest = selected_inputs / "run-manifest.json"
+        if not input_manifest.is_file() or not run_manifest.is_file():
+            raise P08WorkflowError("selected reconstruction input manifests are missing")
         output = self.output_root.resolve() / job_id
         if output.exists():
             raise P08WorkflowError("reconstruction output already exists; use a new run name")
         output.parent.mkdir(parents=True, exist_ok=True)
+        diagnostic_command = [
+            str(self.python_executable),
+            str(self.repository_root / "scripts" / "run_p07_all4_da3_diagnostic.py"),
+            "--p06-run-dir",
+            str(selected_inputs),
+            "--source-dir",
+            str(self.source_directory),
+            "--checkpoint-dir",
+            str(self.checkpoint_directory),
+            "--output-dir",
+            str(output),
+            "--input-manifest-sha256",
+            _sha256(input_manifest),
+            "--run-manifest-sha256",
+            _sha256(run_manifest),
+        ]
+        cohort: SceneDa3Cohort | None = None
+        if camera_ids is not None:
+            try:
+                cohort = SceneDa3Cohort.build(camera_ids, camera_policy_sha256 or "")
+            except SceneDa3PolicyError as error:
+                raise P08WorkflowError(str(error)) from error
+            diagnostic_command.extend(cohort.cli_arguments())
+        elif camera_policy_sha256 is not None:
+            raise P08WorkflowError(
+                "camera-policy SHA-256 cannot be supplied without a scene roster"
+            )
+        effective_resolution = (
+            process_resolution if process_resolution is not None else self.process_resolution
+        )
+        if effective_resolution is not None:
+            diagnostic_command.extend(("--process-resolution", str(effective_resolution)))
+        verifier_command = [
+            str(self.python_executable),
+            str(self.repository_root / "scripts" / "verify_p07_all4_da3_diagnostic.py"),
+            "--run-dir",
+            str(output),
+            "--output",
+            str(output / "verification.json"),
+        ]
+        if cohort is None:
+            if self.d041_manifest_path is None:
+                raise P08WorkflowError("historical reconstruction requires its rollback manifest")
+            verifier_command.extend(("--d041-manifest", str(self.d041_manifest_path)))
         commands = (
-            (
-                str(self.python_executable),
-                str(self.repository_root / "scripts" / "run_p07_all4_da3_diagnostic.py"),
-                "--p06-run-dir",
-                str(self.p06_run_directory),
-                "--source-dir",
-                str(self.source_directory),
-                "--checkpoint-dir",
-                str(self.checkpoint_directory),
-                "--output-dir",
-                str(output),
-            ),
+            tuple(diagnostic_command),
             (
                 str(self.python_executable),
                 str(self.repository_root / "scripts" / "export_p07_all4_da3_cloud.py"),
                 "--diagnostic-run-dir",
                 str(output),
             ),
-            (
-                str(self.python_executable),
-                str(self.repository_root / "scripts" / "verify_p07_all4_da3_diagnostic.py"),
-                "--run-dir",
-                str(output),
-                "--d041-manifest",
-                str(self.d041_manifest_path),
-                "--output",
-                str(output / "verification.json"),
-            ),
+            tuple(verifier_command),
         )
         started = time.perf_counter()
         for command in commands:
@@ -205,7 +261,8 @@ class ReconstructionWorkflowAdapter:
         rerun = _object(geometry_manifest, "rerun")
         geometry_hash = _string(combined, "sha256")
         if (
-            self.expected_geometry_sha256 is not None
+            input_run_directory is None
+            and self.expected_geometry_sha256 is not None
             and geometry_hash != self.expected_geometry_sha256
         ):
             raise P08WorkflowError(
@@ -228,6 +285,18 @@ class ReconstructionWorkflowAdapter:
                 "byte_count": int(rerun["byte_count"]),
             },
             "matches_selected_geometry": self.expected_geometry_sha256 == geometry_hash,
+            "fresh_scene_update_input": input_run_directory is not None,
+            "scene_camera_ids": list(camera_ids) if camera_ids is not None else None,
+            "camera_policy_sha256": camera_policy_sha256,
+            "da3_cohort_policy": (
+                "all-enabled-cameras-per-scene-joint"
+                if camera_ids is not None and len(camera_ids) > 1
+                else "single-camera-single-view"
+                if camera_ids is not None
+                else "historical-all-four"
+            ),
+            "scene_da3_cohort": None if cohort is None else cohort.to_dict(),
+            "process_resolution": effective_resolution,
             "elapsed_seconds": time.perf_counter() - started,
         }
 
@@ -326,9 +395,11 @@ class FloorPreviewWorkflowAdapter:
 
     python_executable: Path
     repository_root: Path
-    floor_contract_path: Path
+    floor_contract_path: Path | None
 
     def run(self, run_directory: Path, cancel_event: threading.Event) -> dict[str, Any]:
+        if self.floor_contract_path is None:
+            raise P08WorkflowError("historical floor preview requires its frozen source contract")
         manifest_path = run_directory / "floor-rerun-manifest-v4.json"
         rerun_path = run_directory / "candidate-working-facility-geometry-v3-floor-context-v4.rrd"
         if manifest_path.exists() or rerun_path.exists():
@@ -344,6 +415,31 @@ class FloorPreviewWorkflowAdapter:
             str(self.floor_contract_path),
             "--run-dir",
             str(run_directory),
+        )
+        _run_process(command, self.repository_root, cancel_event)
+        return self._verified_preview(manifest_path, rerun_path, reused=False)
+
+    def run_for_geometry(
+        self,
+        run_directory: Path,
+        geometry_manifest_path: Path,
+        cancel_event: threading.Event,
+    ) -> dict[str, Any]:
+        manifest_path = run_directory / "floor-rerun-manifest-v4.json"
+        rerun_path = run_directory / "candidate-working-facility-geometry-v3-floor-context-v4.rrd"
+        if manifest_path.exists() or rerun_path.exists():
+            if not manifest_path.is_file() or not rerun_path.is_file():
+                raise P08WorkflowError(
+                    "scene-update floor preview artifacts are incomplete; preserve the run"
+                )
+            return self._verified_preview(manifest_path, rerun_path, reused=True)
+        command = (
+            str(self.python_executable),
+            str(self.repository_root / "scripts" / "export_p08_floor_rerun.py"),
+            "--geometry-manifest",
+            str(geometry_manifest_path.resolve()),
+            "--run-dir",
+            str(run_directory.resolve()),
         )
         _run_process(command, self.repository_root, cancel_event)
         return self._verified_preview(manifest_path, rerun_path, reused=False)
@@ -381,6 +477,7 @@ def _run_process(
         process = subprocess.Popen(
             list(command),
             cwd=working_directory,
+            env=repository_source_environment(working_directory),
             stdout=process_log,
             stderr=subprocess.STDOUT,
             text=True,

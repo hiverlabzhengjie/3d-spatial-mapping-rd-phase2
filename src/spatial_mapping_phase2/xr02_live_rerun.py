@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import math
-import os
 import socket
 import subprocess
 import threading
@@ -56,8 +55,15 @@ class XR02LiveRerunLogger:
         *,
         trail_limit: int = 120,
         image_every_n_ticks: int = 1,
+        durable_archive: bool = True,
+        viewer_memory_limit: str = "512MB",
+        viewer_history_seconds: float = 600.0,
     ) -> None:
-        if trail_limit <= 1 or image_every_n_ticks <= 0:
+        if (
+            trail_limit <= 1
+            or image_every_n_ticks <= 0
+            or not 60.0 <= viewer_history_seconds <= 3600.0
+        ):
             raise XR02LiveContractError("Rerun trail/image cadence configuration is invalid")
         self.recording_path = recording_path.resolve()
         self._scene = scene
@@ -65,6 +71,9 @@ class XR02LiveRerunLogger:
         self._floor = floor
         self._trail_limit = trail_limit
         self._image_every_n_ticks = image_every_n_ticks
+        self._durable_archive = durable_archive
+        self._viewer_memory_limit = viewer_memory_limit
+        self._viewer_history_seconds = viewer_history_seconds
         self._trails: dict[str, _TrailState] = {}
         self._previous_track_states: dict[str, GlobalTrackState] = {}
         self._previous_track_cameras: dict[str, tuple[str, ...]] = {}
@@ -79,6 +88,8 @@ class XR02LiveRerunLogger:
         self._live_ticks = 0
         self._viewer_port: int | None = None
         self._viewer_process: subprocess.Popen[bytes] | None = None
+        self._viewer_started_monotonic: float | None = None
+        self._viewer_rotations = 0
         self._closed = False
         self._rerun_executable = python_executable.resolve().with_name("rerun.exe")
         if not self._rerun_executable.is_file():
@@ -87,16 +98,26 @@ class XR02LiveRerunLogger:
 
         self._rr = rr
         self.recording_path.parent.mkdir(parents=True, exist_ok=True)
-        self._archive: Any = rr.new_recording(
-            "xr02-wp4-live-global-tracking",
-            recording_id=self.recording_path.stem,
-        )
-        self._archive.save(str(self.recording_path))
-        self._log_static((self._archive,))
-        self._send_blueprint((self._archive,))
+        self._archive: Any = None
+        if durable_archive:
+            self._archive = rr.new_recording(
+                "xr02-wp4-live-global-tracking",
+                recording_id=self.recording_path.stem,
+            )
+            self._archive.save(str(self.recording_path))
+            self._log_static((self._archive,))
+            self._send_blueprint((self._archive,))
 
     def log_tick(self, tick: LiveAssociationTick) -> None:
         with self._lock:
+            if (
+                not self._durable_archive
+                and self._viewer_started_monotonic is not None
+                and monotonic() - self._viewer_started_monotonic >= self._viewer_history_seconds
+            ):
+                self._close_live_viewer_locked()
+                self._open_live_viewer_locked()
+                self._viewer_rotations += 1
             self._tick_count += 1
             recordings = self._active_recordings()
             for recording in recordings:
@@ -442,61 +463,92 @@ class XR02LiveRerunLogger:
     def open_viewer(self) -> None:
         with self._lock:
             if self._closed:
+                if not self._durable_archive:
+                    raise XR02LiveRerunError("volatile Live view ended with the Live run")
                 self._open_archive_viewer()
                 return
             if self._viewer_port is not None and _listener_open(self._viewer_port):
                 return
+            if self._live_recording is not None or self._viewer_process is not None:
+                self._close_live_viewer_locked()
+            self._open_live_viewer_locked()
+
+    def _open_live_viewer_locked(self) -> None:
         port = _reserve_port()
-        previous_path = os.environ.get("PATH")
-        os.environ["PATH"] = os.pathsep.join(
-            item for item in (str(self._rerun_executable.parent), previous_path) if item
-        )
         try:
-            self._rr.spawn(
-                port=port,
-                connect=False,
-                hide_welcome_screen=True,
-                recording=self._archive,
+            process = subprocess.Popen(
+                [
+                    str(self._rerun_executable),
+                    "--port",
+                    str(port),
+                    "--memory-limit",
+                    self._viewer_memory_limit,
+                    "--hide-welcome-screen",
+                    "--expect-data-soon",
+                ],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
             )
-        except Exception as error:
+        except OSError as error:
             raise XR02LiveRerunError("failed to launch native Rerun") from error
-        finally:
-            if previous_path is None:
-                os.environ.pop("PATH", None)
-            else:
-                os.environ["PATH"] = previous_path
         if not _wait_listener(port, 10.0):
+            _terminate_process(process)
             raise XR02LiveRerunError("native Rerun live listener did not start")
-        with self._lock:
-            live = self._rr.new_recording(
-                "xr02-wp4-live-global-tracking",
-                recording_id=self.recording_path.stem,
-            )
-            self._rr.connect_tcp(f"127.0.0.1:{port}", recording=live)
-            self._live_recording = live
-            self._viewer_port = port
-            self._live_connections += 1
-            self._log_static((live,))
-            self._send_blueprint((live,))
-            live.flush()
+        live = self._rr.new_recording(
+            "xr02-wp4-live-global-tracking",
+            recording_id=self.recording_path.stem,
+        )
+        self._rr.connect_tcp(f"127.0.0.1:{port}", recording=live)
+        self._live_recording = live
+        self._viewer_port = port
+        self._viewer_process = process
+        self._viewer_started_monotonic = monotonic()
+        self._live_connections += 1
+        self._log_static((live,))
+        self._send_blueprint((live,))
+        live.flush()
 
     def close(self) -> None:
         with self._lock:
             if self._closed:
                 return
-            self._archive.flush()
-            self._archive.disconnect()
+            if self._archive is not None:
+                self._archive.flush()
+                self._archive.disconnect()
             if self._live_recording is not None:
                 self._live_recording.flush()
                 self._live_recording.disconnect()
                 self._live_recording = None
+            process = self._viewer_process
+            self._viewer_process = None
+            self._viewer_port = None
+            self._viewer_started_monotonic = None
             self._closed = True
+        if process is not None:
+            _terminate_process(process)
+
+    def close_viewer(self) -> None:
+        """Close a controller-owned archive viewer before exact-target deletion."""
+
+        with self._lock:
+            process = self._viewer_process
+            self._viewer_process = None
+        if process is not None:
+            _terminate_process(process)
 
     def evidence(self) -> dict[str, object]:
         with self._lock:
             return {
                 "schema": "xr02.wp4.rerun_stream.v1",
-                "archive_path": str(self.recording_path),
+                "archive_path": str(self.recording_path) if self._durable_archive else None,
+                "durable_archive": self._durable_archive,
+                "volatile_viewer_memory_limit": self._viewer_memory_limit,
+                "volatile_history_hard_limit_seconds": self._viewer_history_seconds,
+                "volatile_viewer_rotations": self._viewer_rotations,
+                "volatile_history_description": (
+                    "up to 10 minutes; memory pressure may evict sooner"
+                ),
                 "archive_tick_count": self._tick_count,
                 "live_connection_count": self._live_connections,
                 "live_tick_count": self._live_ticks,
@@ -622,11 +674,24 @@ class XR02LiveRerunLogger:
             recording.send_blueprint(blueprint)
 
     def _active_recordings(self) -> tuple[Any, ...]:
-        return (
-            (self._archive,)
-            if self._live_recording is None
-            else (self._archive, self._live_recording)
-        )
+        recordings = []
+        if self._archive is not None:
+            recordings.append(self._archive)
+        if self._live_recording is not None:
+            recordings.append(self._live_recording)
+        return tuple(recordings)
+
+    def _close_live_viewer_locked(self) -> None:
+        if self._live_recording is not None:
+            self._live_recording.flush()
+            self._live_recording.disconnect()
+            self._live_recording = None
+        process = self._viewer_process
+        self._viewer_process = None
+        self._viewer_port = None
+        self._viewer_started_monotonic = None
+        if process is not None:
+            _terminate_process(process)
 
     def _log(self, path: str, entity: Any, *, static: bool = False) -> None:
         _log_to(self._active_recordings(), path, entity, static=static)
@@ -924,3 +989,14 @@ def _wait_listener(port: int, timeout_seconds: float) -> bool:
             return True
         sleep(0.05)
     return False
+
+
+def _terminate_process(process: subprocess.Popen[bytes]) -> None:
+    if process.poll() is not None:
+        return
+    process.terminate()
+    try:
+        process.wait(timeout=5.0)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait(timeout=2.0)

@@ -34,12 +34,12 @@ P08_PLANE = P08.parent / "authoritative_floor_plane.npz"
 MODEL = ARTIFACT_ROOT / "model_weights" / "yolo11n.pt"
 GEOMETRY = ARTIFACT_ROOT / "inputs" / "working-facility-geometry.npz"
 HASHES = {
-    "p06": "d3c1bfd314a865270a9d9352efd33cd61a470bdc8829a084d5a0f2996f4aa8e4",
-    "p07": "df883eedae46f48aab9c84a86b8e2398fa44b37c2664cac4792d21e5a7d8ef51",
-    "p08": "1462f65068156b4ffe611fd705b7ae62468fe8b665cd5eebae8ed96132adc399",
-    "p08_plane": "1079e8573938c19bd668a73c3bb7706c684fd661a36c95db85eb64592cb25eb0",
-    "geometry": "9ee6b13e7544e0ceac7c3f2d1bd02d012d4247f64cc5eb0fc86ccdfafbe44239",
-    "model": "0ebbc80d4a7680d14987a577cd21342b65ecfd94632bd9a8da63ae6417644ee1",
+    "p06": os.environ.get("P09_P06_SHA256", "0" * 64),
+    "p07": os.environ.get("P09_P07_SHA256", "0" * 64),
+    "p08": os.environ.get("P09_P08_MANIFEST_SHA256", "0" * 64),
+    "p08_plane": os.environ.get("P09_P08_PLANE_SHA256", "0" * 64),
+    "geometry": os.environ.get("P09_GEOMETRY_SHA256", "0" * 64),
+    "model": os.environ.get("P09_MODEL_SHA256", "0" * 64),
 }
 
 

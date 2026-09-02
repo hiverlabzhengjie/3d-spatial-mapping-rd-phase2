@@ -129,9 +129,7 @@ def test_d034_validation_is_exported_separately_from_solve_snapshot(tmp_path: Pa
     _, solve_export = service.export_snapshot()
     seal_path, seal = service.export_d034_validation_seal()
 
-    assert [item["landmark_id"] for item in solve_export["landmarks"]] == [
-        "door-north-top"
-    ]
+    assert [item["landmark_id"] for item in solve_export["landmarks"]] == ["door-north-top"]
     assert solve_export["excluded_d034_validation_landmark_ids"] == ["d034-v1", "d034-v2"]
     assert seal_path.parent.name == "validation_seals"
     assert seal["status"] == "sealed-unconsumed"
@@ -140,6 +138,38 @@ def test_d034_validation_is_exported_separately_from_solve_snapshot(tmp_path: Pa
         "d034-v1",
         "d034-v2",
     ]
+
+
+def test_calibration_readiness_requires_current_four_plus_two_export(tmp_path: Path) -> None:
+    service, _ = _initialized_service(tmp_path)
+    _add_approved_frame(service, tmp_path)
+    for index in range(4):
+        item = _landmark_payload()
+        item["landmark_id"] = f"solve-{index}"
+        item["name"] = f"Solve point {index}"
+        item["image_point"] = {"u": 300.0 + index * 250, "v": 250.0 + index * 100}
+        service.add_landmark(item)
+    for index in range(2):
+        item = _landmark_payload()
+        item["landmark_id"] = f"validation-{index}"
+        item["name"] = f"Validation point {index}"
+        item["role"] = "d034-validation"
+        item["image_point"] = {"u": 500.0 + index * 600, "v": 700.0}
+        service.add_landmark(item)
+
+    before_export = service.calibration_readiness()
+    assert before_export["calibrate_ready"] is False
+    assert "Export linked points" in before_export["reason"]
+
+    path, _ = service.export_snapshot()
+    ready = service.calibration_readiness()
+    assert ready["calibrate_ready"] is True
+    assert ready["current_export_path"] == str(path.resolve())
+
+    service.remove_landmark("validation-1")
+    stale = service.calibration_readiness()
+    assert stale["calibrate_ready"] is False
+    assert stale["current_export_ready"] is False
 
 
 @pytest.mark.parametrize("camera_id", ["office-cam-01", "office-cam-02", "office-cam-04"])
@@ -281,9 +311,7 @@ def test_live_capture_rejects_endpoint_workspace_camera_mismatch(tmp_path: Path)
 
 
 def test_web_console_supports_review_link_export_and_rejections(tmp_path: Path) -> None:
-    app = create_p04_calibration_app(
-        tmp_path / "workspace", _FakeInspector(), _FakeCapturer()
-    )
+    app = create_p04_calibration_app(tmp_path / "workspace", _FakeInspector(), _FakeCapturer())
     service = app.state.calibration_service
     export_path = tmp_path / "facility-export.json"
     export_path.write_text(json.dumps(_facility_export()), encoding="utf-8")

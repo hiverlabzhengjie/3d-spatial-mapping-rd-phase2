@@ -11,8 +11,10 @@ from spatial_mapping_phase2.p08_floor import FloorProcessingConfig, P08FloorErro
 from spatial_mapping_phase2.p08_floor_artifacts import (
     FrozenP07FloorInput,
     create_floor_artifact_run,
+    create_floor_artifact_run_from_geometry,
     load_frozen_p07_source,
     verify_floor_artifact_run,
+    verify_floor_artifact_run_from_geometry,
 )
 
 
@@ -154,3 +156,66 @@ def test_contract_rejects_non_sha256_identity(tmp_path: Path) -> None:
             path,
             "0" * 64,
         )
+
+
+def test_dynamic_scene_floor_is_exact_z_zero_and_preserves_variable_roster(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "scene-combined.npz"
+    np.savez_compressed(
+        source,
+        points=np.array(
+            [[-2.0, 1.0, -0.4], [4.0, 7.0, 2.5], [1.0, 4.0, 0.2]],
+            dtype=np.float64,
+        ),
+        colors_rgb=np.array([[1, 2, 3], [4, 5, 6], [7, 8, 9]], dtype=np.uint8),
+        confidence=np.array([1.0, 2.0, 3.0], dtype=np.float64),
+        source_pixel_count=np.array([2, 3, 4], dtype=np.int32),
+        source_camera_index=np.array([0, 1, 2], dtype=np.int16),
+        camera_ids=np.asarray(["north", "south", "loading-bay"]),
+    )
+    source_sha256 = _sha256(source)
+    run = tmp_path / "dynamic-floor"
+
+    result = create_floor_artifact_run_from_geometry(
+        source, source_sha256, FloorProcessingConfig(), run
+    )
+    verification = verify_floor_artifact_run_from_geometry(run, source, source_sha256)
+
+    assert result["scene_update_dynamic_source"] is True
+    assert result["source"]["selected_geometry"]["sha256"] == source_sha256
+    assert verification["status"] == "passed"
+    assert verification["original_points_removed"] == 0
+    with np.load(run / "authoritative_floor_plane.npz", allow_pickle=False) as plane:
+        assert np.array_equal(
+            plane["vertices_xyz_metres"][:, 2], np.zeros(4, dtype=np.float64)
+        )
+        assert plane["vertices_xyz_metres"][:, :2].tolist() == [
+            [-2.0, 1.0],
+            [4.0, 1.0],
+            [4.0, 7.0],
+            [-2.0, 7.0],
+        ]
+
+
+def test_dynamic_scene_floor_rejects_stale_source_before_creating_output(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "scene-combined.npz"
+    np.savez_compressed(
+        source,
+        points=np.array([[0.0, 0.0, -1.0], [2.0, 2.0, 1.0]], dtype=np.float64),
+        colors_rgb=np.zeros((2, 3), dtype=np.uint8),
+        confidence=np.ones(2, dtype=np.float64),
+        source_pixel_count=np.ones(2, dtype=np.int32),
+        source_camera_index=np.zeros(2, dtype=np.int16),
+        camera_ids=np.asarray(["camera-a"]),
+    )
+    stale_sha256 = _sha256(source)
+    source.write_bytes(source.read_bytes() + b"changed")
+
+    with pytest.raises(P08FloorError, match="identity mismatch"):
+        create_floor_artifact_run_from_geometry(
+            source, stale_sha256, FloorProcessingConfig(), tmp_path / "rejected"
+        )
+    assert not (tmp_path / "rejected").exists()

@@ -673,10 +673,40 @@ def validate_all4_da3_camera_order(camera_ids: Sequence[str]) -> tuple[str, ...]
 
     ordered = tuple(camera_ids)
     if ordered != ALL4_DA3_CAMERA_ORDER:
-        raise P07GeometryError(
-            "all-four-view DA3 diagnostic requires exact Camera 1/2/3/4 order"
-        )
+        raise P07GeometryError("all-four-view DA3 diagnostic requires exact Camera 1/2/3/4 order")
     return ordered
+
+
+def validate_scene_da3_camera_order(camera_ids: Sequence[str]) -> tuple[str, ...]:
+    """Validate a future scene-authoritative DA3 roster without office-specific assumptions."""
+
+    ordered = tuple(camera_ids)
+    if not ordered:
+        raise P07GeometryError("scene DA3 camera roster must not be empty")
+    if len(set(ordered)) != len(ordered):
+        raise P07GeometryError("scene DA3 camera roster must contain unique camera IDs")
+    if any(not camera_id.strip() for camera_id in ordered):
+        raise P07GeometryError("scene DA3 camera IDs must not be blank")
+    return ordered
+
+
+def concatenate_scene_da3_candidate(
+    case_id: str,
+    patches: Mapping[str, GeometryPatch],
+    camera_order: Sequence[str],
+) -> WorkingFacilityGeometry:
+    """Concatenate the complete scene roster, including a valid one-camera scene.
+
+    The reversible working-geometry representation supports one or many views and preserves the
+    declared scene order. Historical P07 diagnostic types and their stricter all-four rules remain
+    unchanged.
+    """
+
+    ordered = validate_scene_da3_camera_order(camera_order)
+    if set(patches) != set(ordered):
+        raise P07GeometryError("scene DA3 patches must exactly match the declared camera roster")
+    del case_id
+    return concatenate_working_facility_geometry(patches, ordered)
 
 
 def T_world_from_da3_T_camera_from_world(value: Array) -> Array:

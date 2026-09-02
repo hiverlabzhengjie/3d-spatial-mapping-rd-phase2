@@ -260,7 +260,9 @@ class P09RerunLogger:
                     )
             for camera_id in set(CAMERA_IDS) - active_camera_ids:
                 self._log(f"p09/live/{camera_id}", self._rr.Clear(recursive=True))
-                self._log(f"p09/world/candidates/{camera_id}", self._rr.Clear(recursive=True))
+                self._log(
+                    f"p09/world/candidates/{camera_id}", self._rr.Clear(recursive=True)
+                )
 
             tracked = result.tracking.current_xy_metres
             if tracked is not None:
@@ -280,11 +282,15 @@ class P09RerunLogger:
                 if line_strips:
                     self._log(
                         "p09/world/recent_trail",
-                        self._rr.LineStrips3D(line_strips, colors=[[80, 240, 120]], radii=0.045),
+                        self._rr.LineStrips3D(
+                            line_strips, colors=[[80, 240, 120]], radii=0.045
+                        ),
                     )
             else:
                 self._trail.break_segment()
-                self._log("p09/world/current_anonymous_xy", self._rr.Clear(recursive=True))
+                self._log(
+                    "p09/world/current_anonymous_xy", self._rr.Clear(recursive=True)
+                )
             self._log(
                 "p09/status",
                 self._rr.TextDocument(_status_markdown(result), media_type="text/markdown"),
@@ -316,7 +322,9 @@ class P09RerunLogger:
         port = _reserve_local_port()
         previous_path = os.environ.get("PATH")
         os.environ["PATH"] = os.pathsep.join(
-            part for part in (str(self._rerun_executable.parent), previous_path) if part
+            part
+            for part in (str(self._rerun_executable.parent), previous_path)
+            if part
         )
         try:
             self._rr.spawn(

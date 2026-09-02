@@ -13,6 +13,7 @@ from spatial_mapping_phase2.p07_geometry import (
     T_world_from_da3_T_camera_from_world,
     back_project_depth,
     concatenate_diagnostic_candidate,
+    concatenate_scene_da3_candidate,
     concatenate_working_facility_geometry,
     cross_view_nearest_surface_diagnostics,
     evaluate_fusion_gate,
@@ -30,6 +31,7 @@ from spatial_mapping_phase2.p07_geometry import (
     validate_all4_da3_camera_order,
     validate_d040_prohibited_operations,
     validate_frozen_working_transforms,
+    validate_scene_da3_camera_order,
     validate_T_world_from_camera,
     voxel_downsample,
     voxel_filter_working_geometry,
@@ -478,3 +480,27 @@ def test_all4_da3_order_and_extrinsic_direction_contract() -> None:
     malformed[0, 0] = 2.0
     with pytest.raises(P07GeometryError, match="not orthonormal"):
         T_world_from_da3_T_camera_from_world(malformed)
+
+
+def test_scene_da3_roster_supports_one_or_many_cameras_in_declared_order() -> None:
+    single_order = ("camera-z",)
+    assert validate_scene_da3_camera_order(single_order) == single_order
+    single = concatenate_scene_da3_candidate(
+        "single", {"camera-z": _facility_patch("camera-z", 0.0)}, single_order
+    )
+    assert single.camera_ids == single_order
+    assert single.point_count == 2
+
+    multi_order = ("camera-z", "camera-a")
+    multi = concatenate_scene_da3_candidate(
+        "multi",
+        {
+            "camera-z": _facility_patch("camera-z", 0.0),
+            "camera-a": _facility_patch("camera-a", 0.1),
+        },
+        multi_order,
+    )
+    assert multi.camera_ids == multi_order
+    assert multi.point_count == 4
+    with pytest.raises(P07GeometryError, match="unique"):
+        validate_scene_da3_camera_order(("camera-a", "camera-a"))

@@ -1,6 +1,6 @@
 "use strict";
 
-const CAMERA_IDS = ["office-cam-01", "office-cam-02", "office-cam-03", "office-cam-04"];
+let CAMERA_IDS = [];
 const CAMERA_COLORS = {
   "office-cam-01": "#e4473e",
   "office-cam-02": "#28a75b",
@@ -11,7 +11,7 @@ const CAMERA_COLORS = {
 const ui = {};
 let registration = null;
 let derived = null;
-let selectedCameraId = CAMERA_IDS[0];
+let selectedCameraId = null;
 let interaction = null;
 let drag = null;
 let zoom = 1;
@@ -20,7 +20,7 @@ let dirty = false;
 document.addEventListener("DOMContentLoaded", async () => {
   [
     "uploadView", "workspaceView", "planFile", "replacePlanFile", "uploadMessage", "saveButton",
-    "exportButton", "saveStatus", "planFilename", "planHash", "scaleId", "scaleDistance",
+    "exportButton", "saveStatus", "planFilename", "planHash", "scaleAxis", "scaleId", "scaleDistance",
     "scaleMeaning", "scaleUncertainty", "scaleSource", "drawScaleButton", "scaleList",
     "scaleSummary", "originMeaning", "placeOriginButton", "setXAxisButton", "resetOriginButton",
     "planViewport", "planScene", "planImage", "planOverlay", "interactionTitle", "interactionHint",
@@ -44,6 +44,7 @@ function wireEvents() {
   ui.saveButton.addEventListener("click", saveRegistration);
   ui.exportButton.addEventListener("click", exportSnapshot);
   ui.drawScaleButton.addEventListener("click", beginScaleControl);
+  ui.scaleAxis.addEventListener("change", syncScaleEntryForAxis);
   ui.placeOriginButton.addEventListener("click", () => setInteraction("origin", "Place origin", "Click the exact permanent origin feature."));
   ui.resetOriginButton.addEventListener("click", () => {
     if (!confirm("Repositioning the origin will recalculate all displayed camera XY coordinates. Saved revisions remain recoverable. Continue?")) return;
@@ -87,6 +88,14 @@ function wireEvents() {
 async function loadInitialState() {
   try {
     const status = await api("/api/status");
+    CAMERA_IDS = Array.isArray(status.camera_ids)
+      ? status.camera_ids
+      : ["office-cam-01", "office-cam-02", "office-cam-03", "office-cam-04"];
+    selectedCameraId = CAMERA_IDS[0] || null;
+    CAMERA_IDS.forEach((cameraId, index) => {
+      if (!CAMERA_COLORS[cameraId]) CAMERA_COLORS[cameraId] = `hsl(${(index * 137.5) % 360} 68% 48%)`;
+    });
+    if (!selectedCameraId) throw new Error("This scene has no configured cameras.");
     if (!status.has_state) return showUpload();
     setState(status.state);
   } catch (error) {
@@ -152,6 +161,8 @@ function renderAll() {
   renderCameraForm();
   renderOverlay();
   renderScaleSummary();
+  renderScaleEntryState();
+  ui.exportButton.disabled = !derived.frame_ready;
 }
 
 function renderScaleControls() {
@@ -163,7 +174,8 @@ function renderScaleControls() {
     const strong = document.createElement("strong");
     strong.textContent = control.control_id;
     const detail = document.createElement("span");
-    detail.textContent = `${control.distance_metres.toFixed(3)} m · ${control.source_kind}`;
+    const ratio = pixelDistance(control.point_a, control.point_b) / control.distance_metres;
+    detail.textContent = `${titleCase(control.axis)} · ${control.distance_metres.toFixed(3)} m · ${ratio.toFixed(2)} px/m · ${control.source_kind}`;
     description.append(strong, detail);
     const remove = document.createElement("button");
     remove.type = "button";
@@ -180,14 +192,44 @@ function renderScaleControls() {
 
 function renderScaleSummary() {
   const ppm = derived.pixels_per_metre;
+  const horizontal = derived.horizontal_pixels_per_metre;
+  const vertical = derived.vertical_pixels_per_metre;
   if (!ppm) {
     ui.scaleSummary.className = "metric-box muted";
-    ui.scaleSummary.textContent = "No metric scale yet";
+    const parts = [
+      horizontal == null ? "Horizontal required" : `Horizontal ${horizontal.toFixed(2)} px/m`,
+      vertical == null ? "Vertical required" : `Vertical ${vertical.toFixed(2)} px/m`,
+    ];
+    ui.scaleSummary.textContent = `${parts.join(" · ")} · add both checks to enable metric XY`;
     return;
   }
   const spread = derived.scale_spread_fraction;
   ui.scaleSummary.className = "metric-box";
-  ui.scaleSummary.textContent = `${ppm.toFixed(2)} px/m · ${registration.scale_controls.length} control${registration.scale_controls.length === 1 ? "" : "s"}${spread == null ? " · provisional single check" : ` · ${(spread * 100).toFixed(2)}% scale spread`}`;
+  ui.scaleSummary.textContent = `Horizontal ${horizontal.toFixed(2)} px/m · Vertical ${vertical.toFixed(2)} px/m · Mean ${ppm.toFixed(2)} px/m · ${(spread * 100).toFixed(2)}% directional difference`;
+}
+
+function renderScaleEntryState() {
+  const used = new Set(registration.scale_controls.map((control) => control.axis));
+  [...ui.scaleAxis.options].forEach((option) => { option.disabled = used.has(option.value); });
+  const missing = ["horizontal", "vertical"].filter((axis) => !used.has(axis));
+  if (missing.length && used.has(ui.scaleAxis.value)) ui.scaleAxis.value = missing[0];
+  ui.scaleAxis.disabled = missing.length === 0;
+  ui.drawScaleButton.disabled = missing.length === 0;
+  if (missing.length === 0) {
+    ui.drawScaleButton.textContent = "Both scale references added";
+  } else {
+    syncScaleEntryForAxis();
+  }
+}
+
+function syncScaleEntryForAxis() {
+  const axis = ui.scaleAxis.value;
+  const opposite = axis === "horizontal" ? "vertical" : "horizontal";
+  if (!ui.scaleId.value || ui.scaleId.value === `${opposite}-scale`) ui.scaleId.value = `${axis}-scale`;
+  if (!ui.scaleMeaning.value || ui.scaleMeaning.value.startsWith(`${opposite} distance`)) {
+    ui.scaleMeaning.value = `${axis} distance between permanent endpoints`;
+  }
+  ui.drawScaleButton.textContent = `Draw ${axis} scale`;
 }
 
 function renderCameraTabs() {
@@ -254,20 +296,22 @@ function renderEndpointState(cameraDerived) {
 }
 
 function beginScaleControl() {
+  const axis = ui.scaleAxis.value;
   const controlId = ui.scaleId.value.trim();
   const distance = optionalNumber(ui.scaleDistance.value);
   const uncertainty = optionalNumber(ui.scaleUncertainty.value);
   if (!/^[a-z][a-z0-9-]*$/.test(controlId)) return toast("Control ID must be lowercase and hyphenated.", true);
   if (registration.scale_controls.some((control) => control.control_id === controlId)) return toast("Scale control ID already exists.", true);
+  if (registration.scale_controls.some((control) => control.axis === axis)) return toast(`The ${axis} scale reference already exists. Remove it before replacing it.`, true);
   if (!(distance > 0) || uncertainty == null || uncertainty < 0) return toast("Enter a positive distance and non-negative uncertainty.", true);
   const meaning = ui.scaleMeaning.value.trim();
   if (!meaning) return toast("Describe the scale endpoints.", true);
   interaction = {
     type: "scale",
     points: [],
-    draft: { control_id: controlId, meaning, distance_metres: distance, distance_uncertainty_metres: uncertainty, source_kind: ui.scaleSource.value },
+    draft: { control_id: controlId, meaning, distance_metres: distance, distance_uncertainty_metres: uncertainty, source_kind: ui.scaleSource.value, axis },
   };
-  updateInteractionHeader("Draw scale control", "Click endpoint A, then endpoint B.");
+  updateInteractionHeader(`Draw ${axis} scale`, `Click endpoint A, then endpoint B along a predominantly ${axis} plan direction.`);
   setActiveTool(ui.drawScaleButton);
 }
 
@@ -346,7 +390,7 @@ function overlayPointerUp(event) {
       updateInteractionHeader();
       renderAll();
     } else {
-      updateInteractionHeader("Draw scale control", "Endpoint A set. Click endpoint B.");
+      updateInteractionHeader(`Draw ${interaction.draft.axis} scale`, "Endpoint A set. Click endpoint B.");
       renderOverlay();
     }
     return;
@@ -432,9 +476,11 @@ function updateCursor(point) {
 
 function computeDerived() {
   if (!registration) return null;
-  const ratios = registration.scale_controls.map((control) => pixelDistance(control.point_a, control.point_b) / control.distance_metres);
-  const ppm = ratios.length ? ratios.reduce((sum, value) => sum + value, 0) / ratios.length : null;
-  const spread = ratios.length < 2 ? null : (Math.max(...ratios) - Math.min(...ratios)) / ppm;
+  const controlByAxis = Object.fromEntries(registration.scale_controls.map((control) => [control.axis, control]));
+  const horizontal = controlByAxis.horizontal ? pixelDistance(controlByAxis.horizontal.point_a, controlByAxis.horizontal.point_b) / controlByAxis.horizontal.distance_metres : null;
+  const vertical = controlByAxis.vertical ? pixelDistance(controlByAxis.vertical.point_a, controlByAxis.vertical.point_b) / controlByAxis.vertical.distance_metres : null;
+  const ppm = horizontal != null && vertical != null ? (horizontal + vertical) / 2 : null;
+  const spread = ppm == null ? null : Math.abs(horizontal - vertical) / ppm;
   const cameras = {};
   registration.cameras.forEach((camera) => {
     const endpointConfigured = derived?.cameras?.[camera.camera_id]?.endpoint_configured || false;
@@ -443,7 +489,7 @@ function computeDerived() {
     if (camera.marker && camera.physical_label && camera.mounting_height_metres != null) status = endpointConfigured ? "ready-for-calibration" : "mount-prior-complete";
     cameras[camera.camera_id] = { status, world_xy: camera.marker ? worldXY(camera.marker, ppm) : null, endpoint_configured: endpointConfigured };
   });
-  return { pixels_per_metre: ppm, scale_spread_fraction: spread, frame_ready: Boolean(ppm && registration.frame), cameras };
+  return { pixels_per_metre: ppm, horizontal_pixels_per_metre: horizontal, vertical_pixels_per_metre: vertical, missing_scale_axes: ["horizontal", "vertical"].filter((axis) => !controlByAxis[axis]), scale_spread_fraction: spread, frame_ready: Boolean(ppm && registration.frame), cameras };
 }
 
 function worldXY(point, explicitPpm = null) {
@@ -549,7 +595,8 @@ function cameraById(cameraId) {
 }
 
 function shortCamera(cameraId) {
-  return `Camera ${Number(cameraId.slice(-2))}`;
+  const index = CAMERA_IDS.indexOf(cameraId);
+  return index >= 0 ? `Camera ${index + 1}` : cameraId;
 }
 
 function pixelDistance(a, b) {
@@ -560,6 +607,10 @@ function optionalNumber(value) {
   if (value === "" || value == null) return null;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function titleCase(value) {
+  return value ? value.charAt(0).toUpperCase() + value.slice(1) : "Unclassified";
 }
 
 function clamp(value, minimum, maximum) {

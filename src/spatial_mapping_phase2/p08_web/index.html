@@ -10,15 +10,19 @@
   <aside class="sidebar">
     <div class="brand">
       <span class="brand-mark">3D</span>
-      <div><strong>Spatial mapping</strong><small>Office workflow</small></div>
+      <div><strong>Spatial mapping</strong><small>Scene workflow</small></div>
     </div>
     <nav id="navigation" aria-label="Workflow pages"></nav>
-    <div class="boundary-note">Runs on this computer only</div>
+    <div class="boundary-note">
+      <span>Runs on this computer only</span>
+      <a href="https://github.com/hiverlabzhengjie/3d-spatial-mapping-rd-phase2" target="_blank" rel="noreferrer">Source &amp; AGPL-3.0 licence</a>
+      <small>Internal R&amp;D · no warranty</small>
+    </div>
   </aside>
   <main>
     <header class="topbar">
       <div><p class="eyebrow">Interactive workflow</p><h1 id="page-title">Loading…</h1></div>
-      <div id="scene-pill" class="scene-pill">Loading project</div>
+      <div class="scene-switcher"><a href="/">All scenes</a><select id="scene-select" aria-label="Switch scene"><option>Loading scene…</option></select></div>
     </header>
     <section id="notice" class="notice hidden" role="status"></section>
     <section id="step-strip" class="step-strip" aria-label="Workflow progress"></section>

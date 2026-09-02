@@ -1,5 +1,5 @@
 # ruff: noqa: E501
-"""Small local operator console for the XR02 WP4 live demonstrator."""
+"""Small local operator console for the XR02 live/recording lifecycle."""
 
 from __future__ import annotations
 
@@ -15,7 +15,16 @@ from typing import Protocol
 class OperatorController(Protocol):
     def start(self) -> dict[str, object]: ...
 
-    def stop(self) -> dict[str, object]: ...
+    def start_live(
+        self,
+        *,
+        resumed_from_session_id: str | None = None,
+        scene_update_id: str | None = None,
+    ) -> dict[str, object]: ...
+
+    def start_recording(self) -> dict[str, object]: ...
+
+    def stop(self, *, reason: str = "operator") -> dict[str, object]: ...
 
     def open_rerun(self) -> dict[str, object]: ...
 
@@ -23,17 +32,34 @@ class OperatorController(Protocol):
 
     def export_evidence_snapshot(self) -> dict[str, object]: ...
 
+    def view_recording(self, session_id: str) -> dict[str, object]: ...
+
+    def save_recording(self, session_id: str, label: str) -> dict[str, object]: ...
+
+    def delete_recording(self, session_id: str, confirmation: str) -> dict[str, object]: ...
+
     def status(self) -> dict[str, object]: ...
 
 
 class XR02OperatorServer:
     """Loopback-only HTTP shell; it never receives or returns RTSP endpoints."""
 
-    def __init__(self, controller: OperatorController, port: int = 8094) -> None:
+    def __init__(
+        self,
+        controller: OperatorController,
+        port: int = 8094,
+        *,
+        api_token: str | None = None,
+        serve_page: bool = True,
+    ) -> None:
         if port != 0 and not 1024 <= port <= 65535:
             raise ValueError("operator port must be within 1024..65535")
-        handler = _handler_factory(controller)
-        self._server = ThreadingHTTPServer(("127.0.0.1", port), handler)
+        if not serve_page and not api_token:
+            raise ValueError("API-only XR02 worker requires an authentication token")
+        self._server = ThreadingHTTPServer(
+            ("127.0.0.1", port),
+            _handler_factory(controller, api_token=api_token, serve_page=serve_page),
+        )
         self._thread: threading.Thread | None = None
 
     @property
@@ -72,34 +98,57 @@ class XR02OperatorServer:
             self._thread = None
 
 
-def _handler_factory(controller: OperatorController) -> type[BaseHTTPRequestHandler]:
-    routes: dict[str, Callable[[], dict[str, object]]] = {
-        "/api/start": controller.start,
-        "/api/stop": controller.stop,
-        "/api/open-rerun": controller.open_rerun,
-        "/api/reset-trails": controller.reset_trails,
-        "/api/export": controller.export_evidence_snapshot,
+def _handler_factory(
+    controller: OperatorController,
+    *,
+    api_token: str | None = None,
+    serve_page: bool = True,
+) -> type[BaseHTTPRequestHandler]:
+    routes: dict[str, Callable[[dict[str, object]], dict[str, object]]] = {
+        "/api/start": lambda _body: controller.start(),
+        "/api/start-live": lambda body: _start_live(controller, body),
+        "/api/start-recording": lambda _body: controller.start_recording(),
+        "/api/stop": lambda body: _stop(controller, body),
+        "/api/open-rerun": lambda _body: controller.open_rerun(),
+        "/api/reset-trails": lambda _body: controller.reset_trails(),
+        "/api/export": lambda _body: controller.export_evidence_snapshot(),
+        "/api/view-recording": lambda body: controller.view_recording(
+            _required_string(body, "session_id")
+        ),
+        "/api/save-recording": lambda body: controller.save_recording(
+            _required_string(body, "session_id"), _required_string(body, "label")
+        ),
+        "/api/delete-recording": lambda body: controller.delete_recording(
+            _required_string(body, "session_id"), _required_string(body, "confirmation")
+        ),
     }
 
     class Handler(BaseHTTPRequestHandler):
-        server_version = "XR02Operator/1"
+        server_version = "XR02Operator/2"
 
         def do_GET(self) -> None:  # noqa: N802
             if self.path == "/":
-                self._send(HTTPStatus.OK, _PAGE.encode("utf-8"), "text/html; charset=utf-8")
+                if serve_page:
+                    self._send(HTTPStatus.OK, _PAGE.encode("utf-8"), "text/html; charset=utf-8")
+                else:
+                    self._json(HTTPStatus.NOT_FOUND, {"error": "api_only"})
                 return
             if self.path == "/api/status":
+                if not self._authorized():
+                    return
                 self._json(HTTPStatus.OK, controller.status())
                 return
             self._json(HTTPStatus.NOT_FOUND, {"error": "not_found"})
 
         def do_POST(self) -> None:  # noqa: N802
+            if not self._authorized():
+                return
             action = routes.get(self.path)
             if action is None:
                 self._json(HTTPStatus.NOT_FOUND, {"error": "not_found"})
                 return
             try:
-                result = action()
+                result = action(self._json_body())
             except Exception as error:
                 self._json(
                     HTTPStatus.CONFLICT,
@@ -107,6 +156,26 @@ def _handler_factory(controller: OperatorController) -> type[BaseHTTPRequestHand
                 )
                 return
             self._json(HTTPStatus.OK, result)
+
+        def _authorized(self) -> bool:
+            if api_token is None or self.headers.get("X-XR02-Worker-Token") == api_token:
+                return True
+            self._json(HTTPStatus.UNAUTHORIZED, {"error": "unauthorized"})
+            return False
+
+        def _json_body(self) -> dict[str, object]:
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+            except ValueError as error:
+                raise ValueError("invalid Content-Length") from error
+            if length < 0 or length > 4096:
+                raise ValueError("request body exceeds the 4096-byte operator limit")
+            if length == 0:
+                return {}
+            value = json.loads(self.rfile.read(length))
+            if not isinstance(value, dict):
+                raise ValueError("operator request body must be a JSON object")
+            return value
 
         def log_message(self, format: str, *args: object) -> None:
             return
@@ -130,65 +199,99 @@ def _handler_factory(controller: OperatorController) -> type[BaseHTTPRequestHand
     return Handler
 
 
+def _required_string(body: dict[str, object], key: str) -> str:
+    value = body.get(key)
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{key} is required")
+    return value
+
+
+def _optional_string(body: dict[str, object], key: str) -> str | None:
+    value = body.get(key)
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{key} must be null or a non-blank string")
+    return value.strip()
+
+
+def _start_live(controller: OperatorController, body: dict[str, object]) -> dict[str, object]:
+    resumed = _optional_string(body, "resumed_from_session_id")
+    update_id = _optional_string(body, "scene_update_id")
+    if resumed is None and update_id is None:
+        return controller.start_live()
+    return controller.start_live(
+        resumed_from_session_id=resumed,
+        scene_update_id=update_id,
+    )
+
+
+def _stop(controller: OperatorController, body: dict[str, object]) -> dict[str, object]:
+    reason = _optional_string(body, "reason")
+    if reason is None:
+        return controller.stop()
+    return controller.stop(reason=reason)
+
+
 _PAGE = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">
-<title>XR02 Live Global Tracking</title><style>
-:root{color-scheme:dark;--bg:#0b1020;--card:#151c30;--line:#293553;--ink:#e8edfa;
---muted:#99a8c7;--ok:#35d07f;--warn:#ffca5f;--bad:#ff6b74;--accent:#7ba6ff}
-*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at top,#182443,var(--bg) 45%);
-font:15px/1.45 system-ui;color:var(--ink)}main{max-width:1180px;margin:auto;padding:28px}
-h1{font-size:28px;margin:0}.sub{color:var(--muted);margin:5px 0 22px}.bar{display:flex;gap:10px;
-flex-wrap:wrap;margin-bottom:20px}button{border:1px solid var(--line);border-radius:10px;padding:10px 15px;
-background:#1b2742;color:var(--ink);font-weight:650;cursor:pointer}button.primary{background:#315eaf}
-button:hover{filter:brightness(1.15)}.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
-.card{background:rgba(21,28,48,.94);border:1px solid var(--line);border-radius:14px;padding:15px;
-box-shadow:0 12px 35px #0003}.wide{grid-column:span 2}.label{font-size:12px;text-transform:uppercase;
-letter-spacing:.1em;color:var(--muted)}.value{font-size:21px;font-weight:750;margin-top:4px}
-.pill{display:inline-block;border-radius:99px;padding:3px 9px;background:#27334e;color:var(--muted)}
-.current{color:var(--ok)}.stale,.missing,.starting,.reconnecting{color:var(--warn)}.failed{color:var(--bad)}
-table{width:100%;border-collapse:collapse;margin-top:9px}td,th{text-align:left;padding:7px;border-bottom:1px solid #26314b}
-pre{white-space:pre-wrap;color:var(--muted);max-height:180px;overflow:auto}#message{min-height:24px;color:var(--muted)}
-.source{margin-top:18px;color:var(--muted)}.source a{color:var(--accent)}
-@media(max-width:820px){.grid{grid-template-columns:1fr 1fr}.wide{grid-column:span 2}}
-</style></head><body><main><h1>XR02 · Live Global Tracking</h1>
-<p class="sub">Four-camera office demonstrator · anonymous scene-global IDs · native Rerun 3D</p>
-<div class="bar"><button class="primary" data-action="start">Start live service</button>
-<button data-action="open-rerun">Open Rerun 3D</button><button data-action="reset-trails">Reset trails</button>
-<button data-action="export">Evidence snapshot</button><button data-action="stop">Stop &amp; finalize</button></div>
-<div id="message"></div><section class="grid"><article class="card"><div class="label">Service</div>
-<div class="value" id="service">—</div></article><article class="card"><div class="label">Global tracks</div>
-<div class="value" id="tracks">0</div></article><article class="card"><div class="label">Local tracking ticks</div>
-<div class="value" id="ticks">0</div></article><article class="card"><div class="label">Explicit inference drops</div>
-<div class="value" id="drops">0</div><small id="pending-detail"></small></article><article class="card"><div class="label">Cadence</div>
-<div class="value" id="cadence">—</div><small id="cadence-detail"></small></article><article class="card"><div class="label">Publication</div>
-<div class="value" id="publication">—</div><small id="publication-detail"></small></article><article class="card"><div class="label">Media ingress</div>
-<div class="value" id="ingress">—</div><small id="ingress-detail"></small></article><article class="card"><div class="label">Trial replay capture</div>
-<div class="value" id="recording">—</div><small id="recording-detail"></small></article><article class="card wide"><div class="label">Camera health</div>
-<table><thead><tr><th>Camera</th><th>State</th><th>Backend</th><th>Generation / epoch</th><th>Frames</th><th>Frame / heartbeat age</th></tr></thead>
-<tbody id="cameras"></tbody></table></article><article class="card wide"><div class="label">Current scene</div>
-<pre id="scene">—</pre></article></section>
-<p class="source">Source: <a href="https://github.com/hiverlabzhengjie/3d-spatial-mapping-rd-phase2">AGPL-3.0 repository</a></p>
+<title>XR02 Live Service</title><style>
+:root{color-scheme:dark;--bg:#07111d;--card:#101f2d;--line:#263b4d;--ink:#eef7fb;--muted:#98acb9;
+--ok:#1bd7b0;--warn:#ffc766;--bad:#ff7180;--accent:#39c6e5}*{box-sizing:border-box}
+body{margin:0;background:radial-gradient(circle at top,#102b3c,var(--bg) 48%);font:15px/1.5 system-ui;color:var(--ink)}
+main{max-width:1080px;margin:auto;padding:38px 24px 70px}h1{font-size:34px;margin:0}.sub{color:var(--muted);margin:4px 0 25px}
+.panel{background:#101f2dee;border:1px solid var(--line);border-radius:16px;padding:22px;margin:14px 0;box-shadow:0 16px 45px #0004}
+.state{display:flex;justify-content:space-between;gap:16px;align-items:center}.eyebrow{font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--accent)}
+.title{font-size:23px;font-weight:760}.muted,small{color:var(--muted)}.actions{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:18px}
+button{border:1px solid var(--line);border-radius:12px;padding:12px 16px;background:#173146;color:var(--ink);font-weight:700;cursor:pointer}
+button.hero{padding:22px;text-align:left;font-size:18px;background:#15475a}button.record{background:#26385d}button.danger{background:#522a35;border-color:#81404d}
+button:disabled{opacity:.42;cursor:not-allowed}button:hover:not(:disabled){filter:brightness(1.14)}.hidden{display:none!important}.full{width:100%}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:14px}.metric{background:#0b1723;border:1px solid #203548;border-radius:11px;padding:12px}
+.metric b{font-size:21px;display:block}.pill{border-radius:999px;padding:5px 11px;background:#193449;color:var(--muted)}.ok{color:var(--ok)}.warn{color:var(--warn)}.bad{color:var(--bad)}
+.pending-actions{display:flex;gap:9px;flex-wrap:wrap;margin-top:16px}input{flex:1;min-width:220px;border:1px solid var(--line);border-radius:10px;background:#081622;color:var(--ink);padding:11px}
+.list{display:grid;gap:9px;margin-top:12px}.row{display:flex;align-items:center;justify-content:space-between;gap:12px;background:#0b1723;border:1px solid #203548;border-radius:11px;padding:12px}
+details summary{cursor:pointer;font-weight:700}table{width:100%;border-collapse:collapse;margin-top:10px}td,th{text-align:left;padding:7px;border-bottom:1px solid #263b4d}
+#message{min-height:22px;color:var(--muted)}pre{white-space:pre-wrap;color:var(--muted);max-height:160px;overflow:auto}
+@media(max-width:720px){.actions,.grid{grid-template-columns:1fr}.state,.row{align-items:flex-start;flex-direction:column}}
+</style></head><body><main><div class="eyebrow">XR02 operator console</div><h1>Live people tracking</h1>
+<p class="sub">Two operating modes · anonymous global tracks · facility XY · native Rerun 3D</p><div id="message"></div>
+<section class="panel state"><div><div class="eyebrow">Service state</div><div class="title" id="state">Loading…</div><div class="muted" id="state-detail"></div></div><span class="pill" id="mode">Ready</span></section>
+<section class="panel" id="start-panel"><div class="title">What would you like to do?</div><div class="actions">
+<button class="hero" data-action="start-live">Start Live Service<br><small>Live view + compact 1 Hz count/track/XY history. No video or replay archive.</small></button>
+<button class="hero record" id="start-recording" data-action="start-recording">Start Replayable Recording<br><small>Full Rerun, decision journals and camera footage. Save or delete after stopping.</small></button>
+</div></section>
+<section class="panel hidden" id="active-panel"><div class="title" id="active-title">Live is running</div><p class="muted" id="viewer-note"></p>
+<div class="grid"><div class="metric"><span class="muted">People observed now</span><b id="people">0</b></div><div class="metric"><span class="muted">Tracking ticks</span><b id="ticks">0</b></div><div class="metric"><span class="muted">Camera health</span><b id="health">—</b></div></div>
+<div class="pending-actions"><button class="full danger" data-action="stop" id="stop-button">Stop Live Service</button></div></section>
+<section class="panel hidden" id="pending-panel"><div class="eyebrow">Recording finalized</div><div class="title">Choose what happens to this recording</div>
+<p class="muted" id="pending-detail"></p><div class="pending-actions"><button data-action="view-pending">View recording</button>
+<input id="recording-label" maxlength="80" placeholder="Recording name"><button data-action="save-pending">Name &amp; save</button>
+<button class="danger" data-action="delete-pending">Permanently delete</button></div></section>
+<section class="panel"><div class="title">Saved recordings</div><div class="list" id="saved"><div class="muted">No saved recordings yet.</div></div></section>
+<section class="panel"><div class="title">Recent Live history</div><p class="muted">Small, durable count/track/XY telemetry only.</p><div class="list" id="live-history"><div class="muted">No completed Live runs yet.</div></div></section>
+<details class="panel"><summary>Diagnostics &amp; engineering controls</summary><div class="pending-actions"><button data-action="open-rerun">Open Rerun 3D</button><button data-action="reset-trails">Reset trails</button><button data-action="export">Evidence snapshot</button></div>
+<div class="grid"><div class="metric"><span class="muted">Inference drops</span><b id="drops">0</b></div><div class="metric"><span class="muted">Ingress</span><b id="ingress">—</b></div><div class="metric"><span class="muted">Storage free</span><b id="storage">—</b></div></div>
+<table><thead><tr><th>Camera</th><th>State</th><th>Frames</th><th>Age</th></tr></thead><tbody id="cameras"></tbody></table><pre id="scene">—</pre></details>
 </main><script>
-const $=id=>document.getElementById(id);let busy=false;
-async function status(){try{const r=await fetch('/api/status',{cache:'no-store'});render(await r.json())}
-catch(e){$('message').textContent='Console connection unavailable'}}
-function render(s){const v=s.service||{};$('service').textContent=v.state||'stopped';
-$('service').className='value '+(v.state==='running'?'current':'');$('tracks').textContent=(v.global_tracks||[]).length;
-const w=v.worker||{};$('ticks').textContent=w.completed_ticks||0;$('drops').textContent=w.busy_dropped_ticks||0;
-$('pending-detail').textContent=`pending: ${w.pending?'yes':'no'} · consumed ${w.pending_consumed_ticks||0} · replaced ${w.pending_replaced_ticks||0} · stale ${w.pending_stale_dropped_ticks||0} · epoch-invalidated ${w.pending_invalidated_ticks||0}`;
-const c=v.cadence||{};$('cadence').textContent=c.local_tracking_hz?`${c.local_tracking_hz} Hz local`:'—';
-$('cadence-detail').textContent=c.global_association_hz?`${c.global_association_hz} Hz global · ${c.appearance_available_hz||c.local_tracking_hz} Hz fresh appearance · ${c.appearance_persistence_hz||c.effective_appearance_hz} Hz durable gallery · ${c.publication_hz} Hz view`:'';
-const p=v.publication_worker||{};$('publication').textContent=`${p.completed_items||0} views`;
-$('publication-detail').textContent=`${p.busy_dropped_items||0} intermediate view drops · tracking unaffected`;
-const g=s.media_ingress||{};$('ingress').textContent=g.state||'—';$('ingress').className='value '+(g.state==='running'?'current':'');
-$('ingress-detail').textContent=g.version?`${g.version} · generation ${g.generation||0} · ${g.restarts||0} restarts`:'explicit diagnostic profile';
-const r=s.trial_recording||{};$('recording').textContent=r.active?'recording':(r.configured?'ready':'off');
-$('recording').className='value '+(r.active?'current':'');$('recording-detail').textContent=r.configured?`${r.segments_started||0} segments · ${r.segments_currently_writing||0} writing · automatic reconnect`: 'enable at console launch';
-$('scene').textContent=(v.scene_context_sha256||'—')+(v.scene_update_available?'\\nNew scene available — restart required':'');
-$('cameras').innerHTML=(v.camera_health||[]).map(c=>`<tr><td>${c.camera_id}</td><td class="${c.state}">${c.state}<br><small>${c.capture_process_state||'—'}</small></td>
-<td>${c.capture_backend||'—'}</td><td>${c.generation} / ${c.tracker_epoch||0}</td><td>${c.delivered_frames||0} delivered<br><small>${c.decoded_frames} decoded · ${c.supervisor_restarts||0} watchdog</small></td><td>${c.frame_age_ms==null?'—':c.frame_age_ms.toFixed(0)+' ms'} / ${c.process_heartbeat_age_ms==null?'—':c.process_heartbeat_age_ms.toFixed(0)+' ms'}<br><small>${c.restart_reason||''}</small></td></tr>`).join('')}
-document.querySelectorAll('button').forEach(b=>b.onclick=async()=>{if(busy)return;busy=true;
-$('message').textContent='Working…';try{const r=await fetch('/api/'+b.dataset.action,{method:'POST'});const v=await r.json();
-if(!r.ok)throw Error(v.detail||v.error);$('message').textContent='Done';render(v.service?v:await (await fetch('/api/status')).json())}
-catch(e){$('message').textContent=e.message}finally{busy=false}});status();setInterval(status,1000);
+const $=id=>document.getElementById(id);let busy=false,autoOpening=false,current={};
+const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const bytes=n=>n==null?'—':n<1048576?`${(n/1024).toFixed(1)} KB`:n<1073741824?`${(n/1048576).toFixed(1)} MB`:`${(n/1073741824).toFixed(1)} GB`;
+async function api(action,body={}){if(busy)return;busy=true;$('message').textContent='Working…';try{const r=await fetch('/api/'+action,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const v=await r.json();if(!r.ok)throw Error(v.detail||v.error);$('message').textContent='';render(v.service?v:await getStatus())}catch(e){$('message').textContent=e.message}finally{busy=false}}
+async function getStatus(){const r=await fetch('/api/status',{cache:'no-store'});if(!r.ok)throw Error('Console status unavailable');return r.json()}
+async function poll(){try{render(await getStatus())}catch(e){$('message').textContent='Console connection unavailable'}}
+function render(s){current=s;const active=!!s.active,p=s.pending_run||null,mode=s.active_mode;$('start-panel').classList.toggle('hidden',active||!!p);$('active-panel').classList.toggle('hidden',!active);$('pending-panel').classList.toggle('hidden',!p);
+$('state').textContent=active?(mode==='recording'?'Replayable recording in progress':'Live service running'):p?(p.state==='recovery_required'?'Run recovery required':'Recording ready for review'):'Ready';
+const storageGuard=(s.storage||{}).guard_message;$('state-detail').textContent=storageGuard||(active?(mode==='recording'?'Full evidence is being staged.':'Compact telemetry is being retained; replay evidence is not.'):p?(p.error_detail||'View, save, or delete this exact staged run before starting again.'):'Choose one operating mode below.');
+$('mode').textContent=active?(mode==='recording'?'Recording':'Live'):p?'Decision required':'Ready';$('active-title').textContent=mode==='recording'?'Replayable recording is running':'Live service is running';$('stop-button').textContent=mode==='recording'?'Stop Recording':'Stop Live Service';
+const v=s.service||{},w=v.worker||{},cams=v.camera_health||[],currentCount=cams.filter(c=>c.state==='current').length;$('people').textContent=(v.global_tracks||[]).filter(t=>t.state!=='ended').length;$('ticks').textContent=w.completed_ticks||0;$('health').textContent=`${currentCount}/${cams.length||4} current`;
+const auto=s.viewer_auto_open||{};$('viewer-note').textContent=auto.opened?'Rerun 3D is open.':auto.all_cameras_current?'Opening Rerun now…':`Rerun opens when all cameras are current, or degraded after ${Math.max(0,30-(auto.startup_elapsed_seconds||0)).toFixed(0)} s.`;
+if(active&&auto.eligible&&!auto.opened&&!autoOpening){autoOpening=true;api('open-rerun').finally(()=>autoOpening=false)}
+const rb=$('start-recording');rb.disabled=!s.recording_available;rb.title=s.recording_available?'':'Restart the console with its recording profile to enable full capture.';
+if(p){$('pending-detail').textContent=`${p.session_id} · ${bytes(p.byte_count)} · ${p.started_at_utc}`;const recovery=p.state==='recovery_required';$('recording-label').disabled=recovery;document.querySelector('[data-action="save-pending"]').disabled=recovery;document.querySelector('[data-action="view-pending"]').disabled=recovery||p.mode!=='recording'}
+$('saved').innerHTML=(s.saved_recordings||[]).length?(s.saved_recordings||[]).map(r=>`<div class="row"><div><b>${esc(r.label)}</b><br><small>${esc(r.started_at_utc)} · ${bytes(r.byte_count)}</small></div><button data-view="${esc(r.session_id)}">View</button></div>`).join(''):'<div class="muted">No saved recordings yet.</div>';
+$('live-history').innerHTML=(s.recent_live_runs||[]).length?(s.recent_live_runs||[]).map(r=>`<div class="row"><div><b>${esc(r.started_at_utc)}</b><br><small>${bytes(r.byte_count)} compact telemetry</small></div><span class="pill">Completed</span></div>`).join(''):'<div class="muted">No completed Live runs yet.</div>';
+$('drops').textContent=w.busy_dropped_ticks||0;const g=s.media_ingress||{};$('ingress').textContent=g.state||'—';$('storage').textContent=bytes((s.storage||{}).free_bytes);$('scene').textContent=(v.scene_context_sha256||'—')+(v.scene_update_available?'\\nNew scene available — restart required':'');
+$('cameras').innerHTML=cams.map(c=>`<tr><td>${esc(c.camera_id)}</td><td class="${esc(c.state)}">${esc(c.state)}</td><td>${c.delivered_frames||0}</td><td>${c.frame_age_ms==null?'—':c.frame_age_ms.toFixed(0)+' ms'}</td></tr>`).join('')}
+document.addEventListener('click',e=>{const b=e.target.closest('button');if(!b||b.disabled)return;if(b.dataset.view){api('view-recording',{session_id:b.dataset.view});return}const a=b.dataset.action;if(!a)return;const p=current.pending_run||{};if(a==='view-pending')api('view-recording',{session_id:p.session_id});else if(a==='save-pending')api('save-recording',{session_id:p.session_id,label:$('recording-label').value});else if(a==='delete-pending'){const phrase=`DELETE ${p.session_id}`;if(confirm(`Permanently delete this exact run?\\n\\n${p.session_id}\\n\\nThis cannot be recovered.`))api('delete-recording',{session_id:p.session_id,confirmation:phrase})}else api(a)});
+poll();setInterval(poll,1000);
 </script></body></html>"""

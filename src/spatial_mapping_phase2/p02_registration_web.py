@@ -19,10 +19,17 @@ def create_p02_registration_app(
     workspace: Path,
     secret_file: Path,
     renderer: PlanRenderer | None = None,
+    *,
+    camera_endpoint_keys: dict[str, str] | None = None,
 ) -> FastAPI:
     """Create a localhost-only registration application with explicit filesystem dependencies."""
 
-    service = P02RegistrationService(workspace, secret_file, renderer)
+    service = P02RegistrationService(
+        workspace,
+        secret_file,
+        renderer,
+        camera_endpoint_keys=camera_endpoint_keys,
+    )
     app = FastAPI(
         title="P02 Facility Registration",
         version="1.0.0",
@@ -61,9 +68,16 @@ def create_p02_registration_app(
 
     @app.get("/api/status")
     async def status() -> dict[str, Any]:
+        custom_roster = camera_endpoint_keys is not None
         if not service.has_state():
-            return {"has_state": False}
-        return {"has_state": True, "state": service.state_response()}
+            result: dict[str, Any] = {"has_state": False}
+            if custom_roster:
+                result["camera_ids"] = list(service.camera_endpoint_keys)
+            return result
+        result = {"has_state": True, "state": service.state_response()}
+        if custom_roster:
+            result["camera_ids"] = list(service.camera_endpoint_keys)
+        return result
 
     @app.get("/api/state")
     async def get_state() -> dict[str, Any]:

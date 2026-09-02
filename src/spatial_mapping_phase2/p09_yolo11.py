@@ -211,7 +211,9 @@ def person_detections_from_yolo11_arrays(
                 bbox_xyxy=(x1, y1, x2, y2),
                 image_point_uv=((x1 + x2) / 2.0, y2),
                 footpoint_kind=(
-                    FootpointKind.TORSO_PROXY if clipped else FootpointKind.BBOX_BOTTOM_CENTER
+                    FootpointKind.TORSO_PROXY
+                    if clipped
+                    else FootpointKind.BBOX_BOTTOM_CENTER
                 ),
                 clipped_at_image_bottom=clipped,
             )

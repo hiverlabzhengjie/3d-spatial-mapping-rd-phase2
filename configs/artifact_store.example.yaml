@@ -1,5 +1,5 @@
 # Versioned, non-secret policy. Copy the root path to the untracked local .env.
-artifact_root: "D:\\3D-Spatial-Mapping-Phase2"
+artifact_root: "../runtime"
 required_directories:
   - model_weights
   - captures
@@ -7,5 +7,4 @@ required_directories:
   - runs
   - exports
 
-# Windows root above maps to /mnt/x/3D-Spatial-Mapping-Phase2 in WSL2.
-
+# If WSL2 is used, map this root to the corresponding mounted path locally.

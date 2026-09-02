@@ -23,13 +23,22 @@ from spatial_mapping_phase2.p04_calibration_service import (
 
 
 def create_p04_calibration_app(
-    workspace: Path,
+    workspace: Path | None = None,
     inspector: ImageInspector | None = None,
     candidate_capturer: CandidateCapturer | None = None,
+    *,
+    service: Any | None = None,
 ) -> FastAPI:
     """Create the localhost P04 app with an explicit local workspace dependency."""
 
-    service = P04CalibrationService(workspace, inspector)
+    if service is None:
+        if workspace is None:
+            raise P04CalibrationError("calibration workspace or service is required")
+        service = P04CalibrationService(workspace, inspector)
+    elif workspace is not None or inspector is not None:
+        raise P04CalibrationError(
+            "an injected calibration service cannot be combined with workspace arguments"
+        )
     app = FastAPI(
         title="P04 Calibration Correspondence Console",
         version="1.0.0",
@@ -105,9 +114,7 @@ def create_p04_calibration_app(
         delay = payload.get("delay_seconds")
         if not isinstance(delay, int | float) or isinstance(delay, bool):
             raise P04CalibrationError("delay_seconds must be a number")
-        await run_in_threadpool(
-            service.capture_candidate, float(delay), candidate_capturer
-        )
+        await run_in_threadpool(service.capture_candidate, float(delay), candidate_capturer)
         return service.state_response()
 
     @app.put("/api/frames/{frame_id}/review")
@@ -167,8 +174,4 @@ def _required_string(payload: dict[str, Any], key: str) -> str:
 
 
 def _asset_text(asset_name: str) -> str:
-    return (
-        files("spatial_mapping_phase2.p04_web")
-        .joinpath(asset_name)
-        .read_text(encoding="utf-8")
-    )
+    return files("spatial_mapping_phase2.p04_web").joinpath(asset_name).read_text(encoding="utf-8")

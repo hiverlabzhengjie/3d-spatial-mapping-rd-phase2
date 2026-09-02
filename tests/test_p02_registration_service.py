@@ -27,13 +27,24 @@ def _configured_payload(service: P02RegistrationService) -> dict[str, object]:
     payload["scale_controls"] = [
         {
             "control_id": "known-width",
+            "axis": "horizontal",
             "meaning": "printed dimension between permanent corners",
             "point_a": {"u": 0.0, "v": 0.0},
             "point_b": {"u": 100.0, "v": 0.0},
             "distance_metres": 1.0,
             "distance_uncertainty_metres": 0.02,
             "source_kind": "printed-dimension",
-        }
+        },
+        {
+            "control_id": "known-height",
+            "axis": "vertical",
+            "meaning": "physical distance between permanent corners",
+            "point_a": {"u": 0.0, "v": 0.0},
+            "point_b": {"u": 0.0, "v": 110.0},
+            "distance_metres": 1.0,
+            "distance_uncertainty_metres": 0.02,
+            "source_kind": "physical-check",
+        },
     ]
     payload["frame"] = {
         "origin": {"u": 100.0, "v": 100.0},
@@ -65,6 +76,11 @@ def test_service_versions_state_and_exports_credential_free_snapshot(tmp_path: P
     stale_payload = _configured_payload(service)
     saved = service.save_state(stale_payload)
     assert saved.revision == 1
+    summary = service.state_response()["derived"]
+    assert summary["horizontal_pixels_per_metre"] == pytest.approx(100.0)
+    assert summary["vertical_pixels_per_metre"] == pytest.approx(110.0)
+    assert summary["pixels_per_metre"] == pytest.approx(105.0)
+    assert summary["missing_scale_axes"] == []
     assert len(list((service.workspace / "history").glob("state-r0-*.json"))) == 1
     with pytest.raises(InteractiveRegistrationError, match="stale revision"):
         service.save_state(stale_payload)
@@ -92,12 +108,54 @@ def test_upload_rejects_non_pdf_without_creating_state(tmp_path: Path) -> None:
     assert service.has_state() is False
 
 
+def test_incomplete_or_duplicate_directional_scale_does_not_become_metric_ready(
+    tmp_path: Path,
+) -> None:
+    service = _service(tmp_path)
+    service.upload_plan("office.pdf", b"%PDF-1.4\nsynthetic")
+    incomplete = _configured_payload(service)
+    controls = incomplete["scale_controls"]
+    assert isinstance(controls, list)
+    controls.pop()
+
+    saved = service.save_state(incomplete)
+    summary = service.state_response()["derived"]
+    assert saved.revision == 1
+    assert summary["pixels_per_metre"] is None
+    assert summary["horizontal_pixels_per_metre"] == pytest.approx(100.0)
+    assert summary["vertical_pixels_per_metre"] is None
+    assert summary["missing_scale_axes"] == ["vertical"]
+    assert summary["frame_ready"] is False
+    with pytest.raises(InteractiveRegistrationError, match="horizontal and vertical"):
+        service.export_snapshot()
+
+    duplicate = service.state_response()
+    duplicate.pop("derived")
+    duplicate_controls = duplicate["scale_controls"]
+    assert isinstance(duplicate_controls, list)
+    duplicate_controls.append(
+        {
+            "control_id": "second-horizontal",
+            "axis": "horizontal",
+            "meaning": "second horizontal check",
+            "point_a": {"u": 0.0, "v": 10.0},
+            "point_b": {"u": 120.0, "v": 10.0},
+            "distance_metres": 1.0,
+            "distance_uncertainty_metres": 0.02,
+            "source_kind": "physical-check",
+        }
+    )
+    with pytest.raises(InteractiveRegistrationError, match="exactly one horizontal"):
+        service.save_state(duplicate)
+
+
 def test_web_api_serves_ui_and_never_returns_endpoint_secret(tmp_path: Path) -> None:
     app = create_p02_registration_app(tmp_path / "workspace", tmp_path / ".env", _FakeRenderer())
     client = TestClient(app)
 
     assert client.get("/").status_code == 200
     assert "Facility Registration Console" in client.get("/").text
+    assert "exactly two independent physical checks" in client.get("/").text
     assert client.get("/assets/app.js").status_code == 200
     assert client.get("/api/status").json() == {"has_state": False}
     upload = client.post(
@@ -131,4 +189,4 @@ def test_web_api_serves_ui_and_never_returns_endpoint_secret(tmp_path: Path) -> 
     assert secret not in export_response.text
     assert export_response.json()["export"]["camera_mounting_priors"][0][
         "C_world_mount_prior"
-    ] == pytest.approx({"x_metres": 1.0, "y_metres": 1.0, "z_metres": 3.0})
+    ] == pytest.approx({"x_metres": 100.0 / 105.0, "y_metres": 100.0 / 105.0, "z_metres": 3.0})

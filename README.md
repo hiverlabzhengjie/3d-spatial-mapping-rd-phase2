@@ -150,6 +150,22 @@ partition evidence only.
 
 See [the sanitized XR02 summary](docs/workstreams/XR02/PUBLIC_SUMMARY.md).
 
+### XR03 and maintained multi-scene console
+
+The maintained console now adds scene-scoped camera-policy history, intrinsic-group review,
+explicit overlap topology, managed-scene creation/storage, restart-safe operator state, Live and
+Recording lifecycle controls, and coordinated scene-update scheduling. Generic managed scenes can
+progress from facility setup and bounded capture through fixed-centre calibration, joint DA3
+reconstruction, geometry review, floor completion and final review without inheriting another
+scene's scientific inputs.
+
+Reusable calibration, reconstruction and downstream adapters are published with synthetic tests.
+Runtime databases, RTSP values, accepted transforms, facility coordinates, client media, model
+weights and generated geometry remain private. Managed Live currently requires exactly four
+enabled cameras at the XR02 compatibility boundary; unsupported rosters fail explicitly.
+
+See [the maintained-console public note](docs/PUBLIC_MAINTAINED_CONSOLE.md).
+
 ## Tracking source setup
 
 The public launchers use `SPATIAL_MAPPING_ARTIFACT_ROOT` (default `./runtime_data`) and never embed
@@ -160,6 +176,31 @@ The accepted Windows/CUDA dependency identities are recorded in
 `requirements/xr02-windows-cu124-direct.lock`. Model weights and third-party binaries are not
 downloaded automatically or redistributed. The launchers fail closed when required source/model or
 accepted-scene hashes do not match.
+
+Legacy P09/XR02 research scripts read expected artifact/model identities from `P09_*_SHA256` and
+`XR02_*_SHA256` environment variables. They default to an all-zero fail-closed placeholder; use
+only hashes calculated from your own reviewed local inputs.
+
+## Reproducible dependency setup
+
+The repository uses three independent uv projects rather than one environment that mixes
+incompatible native and GPU dependency domains:
+
+- the root lock for the package, console, tests and optional facility/geometry/live-capture tools;
+- `environments/da3` for the exact DA3 CUDA substrate;
+- `environments/xr02` for the tracking worker substrate.
+
+With uv 0.12.7 and CPython 3.11.4 installed, the public native gate is:
+
+```powershell
+uv sync --frozen --all-extras
+uv run --frozen --all-extras pytest -q
+uv run --frozen --all-extras ruff check .
+uv run --frozen --all-extras mypy --strict src/spatial_mapping_phase2 tests
+```
+
+Copy `configs/console-profile.example.json` to an ignored local profile and replace placeholders
+with your own lawful runtime paths. The profile and `.env` must never be committed.
 
 ## Repository layout
 
@@ -174,12 +215,11 @@ accepted-scene hashes do not match.
 
 ## Validation
 
-This P09/XR02 snapshot passed 364 tests, Ruff lint, formatting checks across all 63 published
-P09/XR02 Python files, strict mypy across 128 source/test files plus the three P09 and six current
-XR02 scripts, and `git diff --check`. A release scan covered all 217 candidate files: no prohibited
-media/model artifact, private network address, owner-local runtime path or file over 1 MiB is
-included. Credential-shaped RTSP strings are confined to synthetic redaction tests using reserved
-example hosts and documentation addresses.
+This maintained-console snapshot passed 474 tests, Ruff lint, strict mypy across 181 package/test
+files, and `git diff --check`. A release scan covered all 289 candidate files: no prohibited
+media/model artifact, private network address, owner-local runtime path, retained scene identity or
+file over 1 MiB is included. Credential-shaped RTSP strings are confined to synthetic redaction
+tests using reserved example hosts and local-adapter checks.
 
 Model weights, raw outputs, client media, floor-plan derivatives, RTSP credentials, endpoint
 values, owner-local manifests and artifact stores are not included.

@@ -164,7 +164,7 @@ class MediaMtxTrialRecorder:
             if self._final_capture_artifacts is not None:
                 return list(self._final_capture_artifacts)
             captures = tuple(self._captures)
-        result = [
+        result: list[dict[str, object]] = [
             {
                 "camera_id": item.camera_id,
                 "generation": item.generation,

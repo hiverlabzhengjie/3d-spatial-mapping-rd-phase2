@@ -53,7 +53,9 @@ def test_active_open_spawns_unique_listener_and_connects_live_stream(tmp_path: P
         hide_welcome_screen=True,
         recording=logger._archive_recording,
     )
-    logger._rr.connect_tcp.assert_called_once_with("127.0.0.1:23456", recording=live_recording)
+    logger._rr.connect_tcp.assert_called_once_with(
+        "127.0.0.1:23456", recording=live_recording
+    )
     static_context.assert_called_once_with((live_recording,))
     blueprint.assert_called_once_with((live_recording,))
     live_recording.flush.assert_called_once_with()

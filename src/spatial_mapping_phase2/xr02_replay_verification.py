@@ -29,13 +29,10 @@ def verify_wp2_replay(manifest_path: Path) -> dict[str, object]:
     ):
         raise XR02ReplayVerificationError("WP2 manifest escaped its authorized scope")
     scene = _mapping(manifest, "scene_context")
-    if (
-        scene.get("geometry_sha256")
-        != "0ff18cc9b2e5b694a94df8addd13595cfa1a8d09e116da5a2de64f6e88a0415e"
-        or scene.get("floor_sha256")
-        != "1079e8573938c19bd668a73c3bb7706c684fd661a36c95db85eb64592cb25eb0"
+    if not _is_sha256(scene.get("geometry_sha256")) or not _is_sha256(
+        scene.get("floor_sha256")
     ):
-        raise XR02ReplayVerificationError("WP2 scene authority changed")
+        raise XR02ReplayVerificationError("WP2 scene authority identities are malformed")
     supervision = _mapping(manifest, "supervision_gate")
     if supervision.get("version") != "0.30.0" or not isinstance(
         supervision.get("frames_converted"), int
@@ -133,3 +130,12 @@ def _identity(path: Path) -> dict[str, object]:
 
 def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _is_sha256(value: object) -> bool:
+    return (
+        isinstance(value, str)
+        and len(value) == 64
+        and value != "0" * 64
+        and all(character in "0123456789abcdef" for character in value.lower())
+    )

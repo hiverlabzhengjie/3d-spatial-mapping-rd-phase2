@@ -51,9 +51,7 @@ class FrozenP07FloorInput:
             "final_rerun_sha256",
         ):
             value = str(getattr(self, name))
-            if len(value) != 64 or any(
-                character not in "0123456789abcdef" for character in value
-            ):
+            if len(value) != 64 or any(character not in "0123456789abcdef" for character in value):
                 raise P08FloorError(f"{name} must be a lowercase SHA-256")
 
     def source_identities(self) -> dict[str, dict[str, Any]]:
@@ -104,8 +102,7 @@ def load_frozen_p07_source(contract: FrozenP07FloorInput) -> FloorSourceGeometry
         adoption.get("selection") != "owner-approved-working-facility-geometry-v2"
         or adoption.get("success") is not True
         or selected.get("sha256") != contract.selected_geometry_sha256
-        or Path(str(selected.get("path"))).resolve()
-        != contract.selected_geometry_path.resolve()
+        or Path(str(selected.get("path"))).resolve() != contract.selected_geometry_path.resolve()
     ):
         raise P08FloorError("P07 adoption no longer selects the configured v2 geometry")
     rollback = _mapping(_mapping(adoption, "inputs"), "D041_v1_rollback_manifest")
@@ -126,9 +123,7 @@ def load_frozen_p07_source(contract: FrozenP07FloorInput) -> FloorSourceGeometry
             confidence=np.asarray(archive["confidence"]),
             source_pixel_count=np.asarray(archive["source_pixel_count"]),
             source_camera_index=np.asarray(archive["source_camera_index"]),
-            camera_ids=tuple(
-                str(value) for value in np.asarray(archive["camera_ids"]).tolist()
-            ),
+            camera_ids=tuple(str(value) for value in np.asarray(archive["camera_ids"]).tolist()),
         )
     if source.point_count != 97_643 or source.represented_source_pixel_count != 534_961:
         raise P08FloorError("frozen P07 v2 source counts changed")
@@ -143,6 +138,60 @@ def create_floor_artifact_run(
     """Create one non-overwriting deterministic floor derivative and manifest."""
 
     source = load_frozen_p07_source(contract)
+    return _write_floor_artifact_run(
+        source,
+        config,
+        output_directory,
+        contract.source_identities(),
+        dynamic_source=False,
+    )
+
+
+def create_floor_artifact_run_from_geometry(
+    source_path: Path,
+    source_sha256: str,
+    config: FloorProcessingConfig,
+    output_directory: Path,
+) -> dict[str, Any]:
+    """Create the same floor derivative from a new hash-bound scene-update geometry."""
+
+    _require_hash(source_path, source_sha256, "scene-update geometry")
+    with np.load(source_path, allow_pickle=False) as archive:
+        required = {
+            "points",
+            "colors_rgb",
+            "confidence",
+            "source_pixel_count",
+            "source_camera_index",
+            "camera_ids",
+        }
+        if not required.issubset(archive.files):
+            raise P08FloorError("scene-update geometry arrays are incomplete")
+        source = FloorSourceGeometry(
+            points=np.asarray(archive["points"]),
+            colors_rgb=np.asarray(archive["colors_rgb"]),
+            confidence=np.asarray(archive["confidence"]),
+            source_pixel_count=np.asarray(archive["source_pixel_count"]),
+            source_camera_index=np.asarray(archive["source_camera_index"]),
+            camera_ids=tuple(str(value) for value in np.asarray(archive["camera_ids"]).tolist()),
+        )
+    return _write_floor_artifact_run(
+        source,
+        config,
+        output_directory,
+        {"selected_geometry": _identity(source_path)},
+        dynamic_source=True,
+    )
+
+
+def _write_floor_artifact_run(
+    source: FloorSourceGeometry,
+    config: FloorProcessingConfig,
+    output_directory: Path,
+    source_identities: dict[str, dict[str, Any]],
+    *,
+    dynamic_source: bool,
+) -> dict[str, Any]:
     result = process_floor(source, config)
     output = output_directory.resolve()
     if output.exists():
@@ -158,15 +207,14 @@ def create_floor_artifact_run(
             "sha256": _sha256(path),
             "byte_count": path.stat().st_size,
             "array_sha256": {
-                key: _array_sha256(value)
-                for key, value in sorted(payloads[name].items())
+                key: _array_sha256(value) for key, value in sorted(payloads[name].items())
             },
         }
     manifest = {
         "schema_version": "p08-authoritative-floor-plane-artifacts-v2",
         "selection": FLOOR_DERIVATIVE_AUTHORITY,
         "success": True,
-        "source": contract.source_identities(),
+        "source": source_identities,
         "config": config.to_dict(),
         "summary": result.summary(),
         "artifacts": artifact_records,
@@ -188,6 +236,7 @@ def create_floor_artifact_run(
         "survey_grade_XYZ_accuracy": False,
         "authority": result.authority,
         "intended_use": result.intended_use,
+        "scene_update_dynamic_source": dynamic_source,
     }
     manifest_path = output / "floor-completion-manifest.json"
     _write_json_exclusive(manifest_path, manifest)
@@ -199,6 +248,44 @@ def verify_floor_artifact_run(
 ) -> dict[str, Any]:
     """Recompute the floor result and require exact deterministic artifact identities."""
 
+    return _verify_floor_artifact_run(
+        run_directory,
+        contract.source_identities(),
+        load_frozen_p07_source(contract),
+        dynamic_source=False,
+    )
+
+
+def verify_floor_artifact_run_from_geometry(
+    run_directory: Path, source_path: Path, source_sha256: str
+) -> dict[str, Any]:
+    """Recompute a dynamic scene-update floor result against its exact geometry."""
+
+    _require_hash(source_path, source_sha256, "scene-update geometry")
+    with np.load(source_path, allow_pickle=False) as archive:
+        source = FloorSourceGeometry(
+            points=np.asarray(archive["points"]),
+            colors_rgb=np.asarray(archive["colors_rgb"]),
+            confidence=np.asarray(archive["confidence"]),
+            source_pixel_count=np.asarray(archive["source_pixel_count"]),
+            source_camera_index=np.asarray(archive["source_camera_index"]),
+            camera_ids=tuple(str(value) for value in np.asarray(archive["camera_ids"]).tolist()),
+        )
+    return _verify_floor_artifact_run(
+        run_directory,
+        {"selected_geometry": _identity(source_path)},
+        source,
+        dynamic_source=True,
+    )
+
+
+def _verify_floor_artifact_run(
+    run_directory: Path,
+    source_identities: dict[str, dict[str, Any]],
+    source: FloorSourceGeometry,
+    *,
+    dynamic_source: bool,
+) -> dict[str, Any]:
     run = run_directory.resolve()
     manifest_path = run / "floor-completion-manifest.json"
     manifest = _read_json(manifest_path)
@@ -209,17 +296,15 @@ def verify_floor_artifact_run(
         or manifest.get("P07_v1_rollback_modified") is not False
         or manifest.get("accepted_geometry") is not False
     ):
-        raise P08FloorError(
-            "floor artifact manifest escaped the P08 authority boundary"
-        )
-    source_identities = contract.source_identities()
+        raise P08FloorError("floor artifact manifest escaped the P08 authority boundary")
     if manifest.get("source") != source_identities:
         raise P08FloorError("floor artifact source identities changed")
+    if manifest.get("scene_update_dynamic_source", False) is not dynamic_source:
+        raise P08FloorError("floor artifact source mode changed")
     config_payload = manifest.get("config")
     if not isinstance(config_payload, dict):
         raise P08FloorError("floor artifact configuration is malformed")
     config = FloorProcessingConfig(**config_payload)
-    source = load_frozen_p07_source(contract)
     result = process_floor(source, config)
     expected_payloads = _artifact_payloads(result)
     records = manifest.get("artifacts")
@@ -262,6 +347,7 @@ def verify_floor_artifact_run(
         "P07_v2_modified": False,
         "P07_v1_rollback_modified": False,
         "accepted_geometry": False,
+        "scene_update_dynamic_source": dynamic_source,
     }
 
 

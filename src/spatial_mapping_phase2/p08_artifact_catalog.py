@@ -427,7 +427,7 @@ class SceneArtifactCatalog:
                 version
                 for milestone in section_milestones
                 for version in milestone["versions"]
-                if version["selected"] and version["metadata"].get("selectable") is not False
+                if version["selected"]
             ]
             past_items = [
                 version
@@ -452,7 +452,7 @@ class SceneArtifactCatalog:
             version
             for milestone in milestones
             for version in milestone["versions"]
-            if version["metadata"].get("selectable") is not False
+            if version["selected"] or version["metadata"].get("selectable") is not False
         ]
         storage = {
             "current_version_count": sum(bool(item["selected"]) for item in operator_versions),

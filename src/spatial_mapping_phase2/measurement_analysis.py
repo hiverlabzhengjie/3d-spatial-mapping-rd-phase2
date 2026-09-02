@@ -27,4 +27,3 @@ def summarize_array_difference(reference: Any, candidate: Any) -> dict[str, obje
             np.allclose(reference_array, candidate_array, rtol=1e-5, atol=1e-6)
         ),
     }
-

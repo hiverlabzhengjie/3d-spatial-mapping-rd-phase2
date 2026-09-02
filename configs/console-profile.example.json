@@ -1,0 +1,27 @@
+{
+  "schema_version": "phase2-console-profile-v1",
+  "workspace_dir": "../runtime/cache/workflow-scene",
+  "scene_registry": "../runtime/cache/scene-control/scene-registry.sqlite3",
+  "managed_scene_root": "../runtime/cache/scene-control/scenes",
+  "repository_root": "..",
+  "geocalib_python": "../runtime/native-env/Scripts/python.exe",
+  "geocalib_source_directory": "../runtime/upstream/GeoCalib",
+  "geocalib_torch_home": "../runtime/model_weights/torch_hub",
+  "secret_file": "../.env",
+  "host": "127.0.0.1",
+  "port": 8088,
+  "maximum_workers": 1,
+  "maximum_outstanding_jobs": 4,
+  "enable_live_p03": false,
+  "enable_xr02_live_operations": false,
+  "xr02_python": "../runtime/xr02-env/Scripts/python.exe",
+  "xr02_worker_script": "../scripts/run_xr02_wp4_live.py",
+  "xr02_deployment_config": "xr02-worker-deployment.local.json",
+  "xr02_output_root": "../runtime/runs",
+  "xr02_mediamtx_binary": "../runtime/tools/mediamtx.exe",
+  "xr02_ffmpeg_binary": "../runtime/tools/ffmpeg.exe",
+  "allowed_artifact_roots": [
+    "../runtime/runs"
+  ],
+  "calibration_workspaces": {}
+}

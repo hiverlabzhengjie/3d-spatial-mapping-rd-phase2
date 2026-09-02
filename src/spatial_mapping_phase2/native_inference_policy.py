@@ -58,4 +58,3 @@ class NativeInferencePolicy:
             raise NativeInferencePolicyError(
                 "The P00 optimization probe does not enable Gaussian inference or exports."
             )
-

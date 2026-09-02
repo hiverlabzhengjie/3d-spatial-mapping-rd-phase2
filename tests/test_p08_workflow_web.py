@@ -6,10 +6,13 @@ import time
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse, Response
 from fastapi.testclient import TestClient
 
+import spatial_mapping_phase2.p08_workflow_web as workflow_web
+from spatial_mapping_phase2.p02_registration_web import create_p02_registration_app
 from spatial_mapping_phase2.p08_workflow import (
     PHASE_ORDER,
     ArtifactReference,
@@ -23,6 +26,47 @@ from spatial_mapping_phase2.p08_workflow import (
     WorkflowService,
 )
 from spatial_mapping_phase2.p08_workflow_web import create_p08_workflow_app
+
+
+class _FakeCalibrationAdapter:
+    def __init__(self) -> None:
+        self.calls: list[tuple[object, ...]] = []
+
+    def status(self, policy: object) -> dict[str, object]:
+        self.calls.append(("status", policy))
+        return {
+            "intrinsics_ready": True,
+            "intrinsic_batch": {"payload_sha256": "a" * 64, "assignments": []},
+            "cameras": [],
+            "all_cameras_ready": False,
+            "issues": ["camera calibration is not ready"],
+            "warnings": [],
+        }
+
+    def determine_intrinsics(self, policy: object) -> dict[str, object]:
+        self.calls.append(("determine", policy))
+        return {"payload_sha256": "a" * 64}
+
+    def calibrate_camera(self, camera_id: str, policy: object) -> dict[str, object]:
+        self.calls.append(("calibrate", camera_id, policy))
+        return {"camera_id": camera_id, "payload_sha256": "b" * 64}
+
+    def review_camera(
+        self, camera_id: str, attempt_sha256: str, policy: object
+    ) -> dict[str, object]:
+        self.calls.append(("review", camera_id, attempt_sha256, policy))
+        return {"camera_id": camera_id, "decision": "strict-visual-review"}
+
+    def override_camera(
+        self,
+        camera_id: str,
+        attempt_sha256: str,
+        reason: str,
+        acknowledged: bool,
+        policy: object,
+    ) -> dict[str, object]:
+        self.calls.append(("override", camera_id, attempt_sha256, reason, acknowledged, policy))
+        return {"camera_id": camera_id, "decision": "operator-override"}
 
 
 def _sha256(path: Path) -> str:
@@ -120,12 +164,23 @@ def test_integrated_pages_status_assets_and_legacy_mount(tmp_path: Path) -> None
             )
         )
         assert client.get("/").status_code == 200
+        shell = client.get("/").text
+        assert "Source &amp; AGPL-3.0 licence" in shell
+        assert "github.com/hiverlabzhengjie/3d-spatial-mapping-rd-phase2" in shell
         assert client.get("/pages/floor").status_code == 200
         assert client.get("/pages/not-a-page").status_code == 404
-        assert client.get("/assets/app.js").status_code == 200
+        application_script = client.get("/assets/app.js")
+        assert application_script.status_code == 200
+        assert "Current-run steps" in application_script.text
+        assert (
+            "Retained historical outputs do not unlock Live automatically"
+            in application_script.text
+        )
         assert client.get("/assets/unknown.js").status_code == 404
         pages = client.get("/api/pages").json()["pages"]
-        assert len(pages) == 8
+        assert len(pages) == 10
+        assert pages[-2]["page_id"] == "live"
+        assert pages[-1]["page_id"] == "updates"
         assert any(page["page_id"] == "artifacts" for page in pages)
         assert next(page for page in pages if page["page_id"] == "facility")["tool_url"] == (
             "/tools/facility/"
@@ -146,6 +201,8 @@ def test_integrated_pages_status_assets_and_legacy_mount(tmp_path: Path) -> None
         assert len(status["camera_roster"]) == 3
         assert "rtsp://" not in client.get("/api/status").text.lower()
         shell = client.get("/assets/app.js").text.lower()
+        assert "one horizontal and one vertical physical scale reference" in shell
+        assert "mean of their two pixels-per-metre values" in shell
         assert "operator message" not in shell
         assert "artifacts & authority" not in shell
         assert "phase_id" not in shell
@@ -153,6 +210,13 @@ def test_integrated_pages_status_assets_and_legacy_mount(tmp_path: Path) -> None
         assert "permanent means permanent" in shell
         assert "type this phrase" not in shell
         assert "5 newest shown" in shell
+        assert "activity_visible_limit = 5" in shell
+        assert "search older activity" in shell
+        assert "data-activity-from" in shell
+        assert "data-activity-to" in shell
+        assert "data-activity-query" in shell
+        assert "camera-policy controls need a console restart" in shell
+        assert "const calibrationwarnings = asarray(workflow.calibration_warnings)" in shell
         assert "delete selected files" in shell
         catalog = client.get("/api/artifacts")
         assert catalog.status_code == 200
@@ -244,6 +308,154 @@ def test_integrated_pages_status_assets_and_legacy_mount(tmp_path: Path) -> None
             for section in after_delete["workflow_sections"]
             for version in section["past_items"]
         )
+    finally:
+        jobs.close()
+
+
+def test_shell_assets_are_snapshotted_with_the_backend_contract(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    service, jobs, _launches = _service(tmp_path)
+    try:
+        app = create_p08_workflow_app(service)
+        monkeypatch.setattr(workflow_web, "_asset_text", lambda _asset_name: "mixed-version")
+        client = TestClient(app)
+
+        assert "Spatial Mapping Workflow" in client.get("/").text
+        assert "const state" in client.get("/assets/app.js").text
+        assert "mixed-version" not in client.get("/assets/styles.css").text
+    finally:
+        jobs.close()
+
+
+def test_camera_policy_api_and_console_assets_share_the_scene_history_store(
+    tmp_path: Path,
+) -> None:
+    service, jobs, _launches = _service(tmp_path)
+    try:
+        client = TestClient(create_p08_workflow_app(service))
+        initial = client.get("/api/camera-policy")
+        assert initial.status_code == 200
+        assert initial.json()["camera_ids"] == ["camera-a", "camera-b"]
+        payload = {
+            "action_id": "web-camera-policy-first",
+            "expected_revision": None,
+            "confirm_impacts": False,
+            "intrinsic_groups": [
+                {
+                    "group_id": "lens-a",
+                    "lens_model": "Model A",
+                    "camera_ids": ["camera-a", "camera-b"],
+                }
+            ],
+            "overlap_pair_reviews": [
+                {
+                    "camera_id_a": "camera-a",
+                    "camera_id_b": "camera-b",
+                    "verdict": "overlap",
+                }
+            ],
+        }
+        applied = client.post("/api/camera-policy/apply", json=payload)
+        assert applied.status_code == 200
+        assert applied.json()["policy"]["overlap_edges"] == [["camera-a", "camera-b"]]
+        catalog = client.get("/api/artifacts").json()
+        assert catalog["camera_policy"]["active_revision"] == 1
+        javascript = client.get("/assets/app.js").text
+        assert "Group cameras by lens model" in javascript
+        assert "Declare only camera pairs whose views overlap" in javascript
+        assert "Pairs not listed default to no overlap" in javascript
+        assert "Add overlapping pair" in javascript
+        assert "verdict: overlapKeys.has" in javascript
+        assert "Determine intrinsics for all cameras" in javascript
+        assert "Calibrate this camera now" in javascript
+        assert "Accept anyway with warning" in javascript
+    finally:
+        jobs.close()
+
+
+def test_integrated_calibration_api_records_every_operator_action(tmp_path: Path) -> None:
+    service, jobs, _launches = _service(tmp_path)
+    adapter = _FakeCalibrationAdapter()
+    try:
+        service.apply_camera_policy(
+            "calibration-policy",
+            {
+                "intrinsic_groups": [
+                    {
+                        "group_id": "lens-a",
+                        "lens_model": "Model A",
+                        "camera_ids": ["camera-a", "camera-b"],
+                    }
+                ],
+                "overlap_pair_reviews": [
+                    {
+                        "camera_id_a": "camera-a",
+                        "camera_id_b": "camera-b",
+                        "verdict": "unreviewed",
+                    }
+                ],
+            },
+            expected_revision=None,
+            confirm_impacts=False,
+        )
+        service.calibration_adapter = adapter
+        client = TestClient(create_p08_workflow_app(service))
+
+        assert client.get("/api/calibration").status_code == 200
+        assert (
+            client.post(
+                "/api/calibration/determine-intrinsics",
+                json={"action_id": "determine-scene-intrinsics"},
+            ).status_code
+            == 200
+        )
+        calibrated = client.post(
+            "/api/calibration/cameras/camera-a/run",
+            json={"action_id": "calibrate-camera-a"},
+        )
+        assert calibrated.status_code == 200
+        assert (
+            client.post(
+                "/api/calibration/cameras/camera-a/review",
+                json={"action_id": "review-camera-a", "attempt_sha256": "b" * 64},
+            ).status_code
+            == 200
+        )
+        assert (
+            client.post(
+                "/api/calibration/cameras/camera-b/override",
+                json={
+                    "action_id": "override-camera-b",
+                    "attempt_sha256": "c" * 64,
+                    "reason": "physical overlay reviewed",
+                    "acknowledged": True,
+                },
+            ).status_code
+            == 200
+        )
+        assert (service.repository.runs_directory / "calibrate-camera-a.json").is_file()
+        assert any(call[0] == "override" and call[4] is True for call in adapter.calls)
+    finally:
+        jobs.close()
+
+
+def test_integrated_facility_page_uses_biaxial_scale_workflow(tmp_path: Path) -> None:
+    service, jobs, _launches = _service(tmp_path)
+    facility = create_p02_registration_app(tmp_path / "p02-workspace", tmp_path / ".env")
+    try:
+        client = TestClient(create_p08_workflow_app(service, {"facility": facility}))
+
+        page = client.get("/tools/facility/")
+        script = client.get("/tools/facility/assets/app.js")
+
+        assert page.status_code == 200
+        assert "exactly two independent physical checks" in page.text
+        assert "Horizontal" in page.text
+        assert "Vertical" in page.text
+        assert script.status_code == 200
+        assert "horizontal_pixels_per_metre" in script.text
+        assert "vertical_pixels_per_metre" in script.text
     finally:
         jobs.close()
 

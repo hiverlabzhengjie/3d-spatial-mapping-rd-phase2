@@ -61,4 +61,3 @@ class ArtifactLayout:
         if missing_or_invalid:
             names = ", ".join(str(path) for path in missing_or_invalid)
             raise ArtifactLayoutError(f"Artifact layout is incomplete: {names}")
-

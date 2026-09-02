@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+from collections import deque
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -19,6 +20,7 @@ from spatial_mapping_phase2.xr02_cadence import (
     LatestPendingWorker,
     ZeroQueueWorker,
 )
+from spatial_mapping_phase2.xr02_compact_telemetry import CompactLiveTelemetryJournal
 from spatial_mapping_phase2.xr02_global_domain import GlobalTrackState
 from spatial_mapping_phase2.xr02_live_domain import (
     AdoptedSceneSelection,
@@ -91,6 +93,9 @@ class XR02LiveService:
         scene_resolver: Callable[[], AdoptedSceneSelection],
         config: XR02LiveServiceConfig | None = None,
         decoder_policy: SupervisedDecoderPolicy | None = None,
+        *,
+        compact_telemetry: CompactLiveTelemetryJournal | None = None,
+        retain_full_evidence: bool = True,
     ) -> None:
         if tuple(item.camera_id for item in endpoints) != CAMERA_IDS:
             raise XR02LiveContractError("WP4 requires the exact ordered office camera roster")
@@ -99,6 +104,8 @@ class XR02LiveService:
         self._logger = logger
         self._scene_resolver = scene_resolver
         self._config = config or XR02LiveServiceConfig()
+        self._compact_telemetry = compact_telemetry
+        self._retain_full_evidence = retain_full_evidence
         policy = decoder_policy or SupervisedDecoderPolicy()
         self._decoder_policy = policy
         self._slots = {
@@ -143,8 +150,12 @@ class XR02LiveService:
         self._worker_failure_class: str | None = None
         self._publisher_failure_class: str | None = None
         self._scene_update: AdoptedSceneSelection | None = None
-        self._tick_summaries: list[dict[str, object]] = []
-        self._health_samples: list[dict[str, object]] = []
+        self._tick_summaries: list[dict[str, object]] | deque[dict[str, object]] = (
+            [] if retain_full_evidence else deque(maxlen=32)
+        )
+        self._health_samples: list[dict[str, object]] | deque[dict[str, object]] = (
+            [] if retain_full_evidence else deque(maxlen=32)
+        )
         self._clock_ticks = 0
         self._scheduler_missed_deadlines = 0
         self._last_published_tick_index: int | None = None
@@ -203,9 +214,13 @@ class XR02LiveService:
         self._stopped_ns = monotonic_ns()
         self._logger.log_service_state(
             "stopped",
-            "Archive finalized; the overwriteable pending-frame slot is empty.",
+            "Run finalized; the overwriteable pending-frame slot is empty.",
         )
-        self._logger.close()
+        try:
+            self._logger.close()
+        finally:
+            if self._compact_telemetry is not None:
+                self._compact_telemetry.close()
         with self._lock:
             failed = bool(decoder_errors) or self._publisher_failure_class is not None
             self._state = LiveServiceState.FAILED if failed else LiveServiceState.STOPPED
@@ -218,6 +233,9 @@ class XR02LiveService:
 
     def open_viewer(self) -> None:
         self._logger.open_viewer()
+
+    def close_viewer(self) -> None:
+        self._logger.close_viewer()
 
     def reset_trails(self) -> None:
         self._logger.reset_trails()
@@ -290,6 +308,10 @@ class XR02LiveService:
             "status": self.status(),
             "pipeline_profile": self._pipeline.profile_identity,
             "rerun": self._logger.evidence(),
+            "compact_telemetry": (
+                None if self._compact_telemetry is None else self._compact_telemetry.evidence()
+            ),
+            "full_tick_history_retained": self._retain_full_evidence,
             "tick_summaries": summaries,
             "camera_health_samples": health,
             "capture_events": [
@@ -335,6 +357,8 @@ class XR02LiveService:
             self._logger.log_service_state("worker failed", type(error).__name__)
             raise
         health = self._camera_health(result.completed_monotonic_ns)
+        if self._compact_telemetry is not None:
+            self._compact_telemetry.record(result)
         with self._lock:
             self._latest_tick = result
             self._worker_failure_class = None

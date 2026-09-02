@@ -5,9 +5,10 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+from collections import OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 from uuid import uuid4
 
 import numpy as np
@@ -29,6 +30,14 @@ class XR02JournalError(RuntimeError):
 class JournalVerification:
     records: int
     final_sha256: str
+
+
+class EmbeddingRepository(Protocol):
+    """Minimal appearance repository used by local observation assembly."""
+
+    def put(self, vector: NDArray[np.floating[Any]]) -> EmbeddingReference: ...
+
+    def load(self, reference: EmbeddingReference) -> NDArray[np.float32]: ...
 
 
 class EmbeddingStore:
@@ -85,6 +94,46 @@ class EmbeddingStore:
         if vector.shape != (reference.dimension,) or not np.all(np.isfinite(vector)):
             raise XR02JournalError("stored embedding violates its reference")
         return vector
+
+
+class VolatileEmbeddingStore:
+    """Bounded in-memory appearance cache for Live runs without durable galleries."""
+
+    def __init__(self, model_id: str, *, maximum_vectors: int = 256) -> None:
+        if maximum_vectors <= 0:
+            raise XR02JournalError("volatile embedding capacity must be positive")
+        self.model_id = model_id
+        self.maximum_vectors = maximum_vectors
+        self._vectors: OrderedDict[str, NDArray[np.float32]] = OrderedDict()
+
+    def put(self, vector: NDArray[np.floating[Any]]) -> EmbeddingReference:
+        values = np.asarray(vector, dtype=np.float32).reshape(-1)
+        if values.size == 0 or not np.all(np.isfinite(values)):
+            raise XR02JournalError("embedding must contain finite values")
+        norm = float(np.linalg.norm(values))
+        if norm <= 0:
+            raise XR02JournalError("embedding norm must be positive")
+        normalized = np.ascontiguousarray(values / norm, dtype=np.float32)
+        digest = hashlib.sha256(normalized.tobytes(order="C")).hexdigest()
+        self._vectors[digest] = normalized
+        self._vectors.move_to_end(digest)
+        while len(self._vectors) > self.maximum_vectors:
+            self._vectors.popitem(last=False)
+        return EmbeddingReference(
+            sha256=digest,
+            model_id=self.model_id,
+            dimension=int(normalized.size),
+            relative_path=f"volatile/{digest}.f32",
+        )
+
+    def load(self, reference: EmbeddingReference) -> NDArray[np.float32]:
+        vector = self._vectors.get(reference.sha256)
+        if vector is None:
+            raise XR02JournalError("volatile embedding is no longer cached")
+        if vector.shape != (reference.dimension,):
+            raise XR02JournalError("volatile embedding violates its reference")
+        self._vectors.move_to_end(reference.sha256)
+        return vector.copy()
 
 
 class ObservationJournal:

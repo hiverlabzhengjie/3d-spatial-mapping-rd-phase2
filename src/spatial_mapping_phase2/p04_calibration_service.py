@@ -278,9 +278,7 @@ class P04CalibrationService:
                 f"timed camera capture failed ({type(error).__name__})"
             ) from error
         camera_number = state.camera_id.rsplit("-", 1)[-1]
-        frame_id = datetime.now(UTC).strftime(
-            f"cam{camera_number}-live-%Y%m%dt%H%M%S%fz"
-        ).lower()
+        frame_id = datetime.now(UTC).strftime(f"cam{camera_number}-live-%Y%m%dt%H%M%S%fz").lower()
         temporary = self.workspace / f".{frame_id}.capturing.jpg"
         temporary.write_bytes(candidate.content)
         try:
@@ -419,11 +417,70 @@ class P04CalibrationService:
                 landmark.role is LandmarkRole.HELD_OUT for landmark in state.landmarks
             ),
             "d034_validation_count": sum(
-                landmark.role is LandmarkRole.D034_VALIDATION
-                for landmark in state.landmarks
+                landmark.role is LandmarkRole.D034_VALIDATION for landmark in state.landmarks
             ),
         }
         return payload
+
+    def calibration_readiness(self) -> dict[str, Any]:
+        """Report whether the current revision can enter the D034 calibration loop.
+
+        Export identity is revision-bound: editing a frame or landmark immediately makes an
+        earlier export stale and therefore makes any derived calibration attempt stale too.
+        """
+
+        with self._lock:
+            state = self.load_state()
+            approved = state.approved_frame
+            solve_count = sum(landmark.role is LandmarkRole.SOLVE for landmark in state.landmarks)
+            validation_count = sum(
+                landmark.role is LandmarkRole.D034_VALIDATION for landmark in state.landmarks
+            )
+            export_path: Path | None = None
+            export_sha256: str | None = None
+            pattern = f"p04-linked-correspondences-r{state.revision}-*.json"
+            for candidate in sorted(self._exports_dir.glob(pattern), reverse=True):
+                try:
+                    payload = json.loads(candidate.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError):
+                    continue
+                if (
+                    isinstance(payload, dict)
+                    and payload.get("schema_version") == "p04-linked-correspondence-export-v1"
+                    and payload.get("camera_id") == state.camera_id
+                    and payload.get("source_revision") == state.revision
+                ):
+                    export_path = candidate.resolve()
+                    export_sha256 = hashlib.sha256(candidate.read_bytes()).hexdigest()
+                    break
+
+            reasons: list[str] = []
+            if approved is None:
+                reasons.append("Approve a primary camera frame")
+            if solve_count != 4:
+                reasons.append(f"Collect exactly four solve points (current: {solve_count})")
+            if validation_count != 2:
+                reasons.append(
+                    f"Collect exactly two D034 validation points (current: {validation_count})"
+                )
+            if export_path is None:
+                reasons.append("Export linked points for the current revision")
+            return {
+                "camera_id": state.camera_id,
+                "source_revision": state.revision,
+                "approved_frame_id": None if approved is None else approved.frame_id,
+                "approved_frame_sha256": None if approved is None else approved.sha256,
+                "solve_count": solve_count,
+                "held_out_count": sum(
+                    landmark.role is LandmarkRole.HELD_OUT for landmark in state.landmarks
+                ),
+                "d034_validation_count": validation_count,
+                "current_export_ready": export_path is not None,
+                "current_export_path": None if export_path is None else str(export_path),
+                "current_export_sha256": export_sha256,
+                "calibrate_ready": not reasons,
+                "reason": None if not reasons else "; ".join(reasons),
+            }
 
     def plan_image_path(self) -> Path:
         reference = self.load_state().facility_reference
@@ -587,9 +644,7 @@ def _finite_number(value: Any, field_name: str) -> float:
     return result
 
 
-def load_calibration_camera_endpoint(
-    secret_file: Path, camera_id: str
-) -> LocalRtspEndpoint:
+def load_calibration_camera_endpoint(secret_file: Path, camera_id: str) -> LocalRtspEndpoint:
     """Load one selected camera endpoint without returning it in diagnostics."""
 
     if camera_id not in CAMERA_ENDPOINT_KEYS:

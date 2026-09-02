@@ -14,6 +14,7 @@ D034_VALIDATION_SCHEMA_VERSION = "p05-d034-validation-seal-v1"
 PILOT_CAMERA_ID = "office-cam-03"
 CALIBRATION_CAMERA_IDS = tuple(f"office-cam-0{index}" for index in range(1, 5))
 _ID_PATTERN = re.compile(r"^[a-z][a-z0-9-]*$")
+_CAMERA_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9._-]{0,127}$")
 
 
 class P04CalibrationError(ValueError):
@@ -272,9 +273,7 @@ class LinkedLandmark:
         if self.z_source is not None:
             _require_non_blank(self.z_source, "landmark z_source")
         if self.z_uncertainty_metres is not None:
-            _require_non_negative(
-                self.z_uncertainty_metres, "landmark z_uncertainty_metres"
-            )
+            _require_non_negative(self.z_uncertainty_metres, "landmark z_uncertainty_metres")
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> LinkedLandmark:
@@ -404,8 +403,7 @@ class CalibrationWorkspace:
                 next_status = status
                 next_note = note
             elif (
-                status is FrameReviewStatus.APPROVED
-                and frame.status is FrameReviewStatus.APPROVED
+                status is FrameReviewStatus.APPROVED and frame.status is FrameReviewStatus.APPROVED
             ):
                 next_status = FrameReviewStatus.SUPERSEDED
                 next_note = "superseded by a later approved primary frame"
@@ -479,8 +477,8 @@ def build_d034_validation_seal(workspace: CalibrationWorkspace) -> dict[str, Any
 
 
 def _require_calibration_camera_id(camera_id: str) -> None:
-    if camera_id not in CALIBRATION_CAMERA_IDS:
-        raise P04CalibrationError("camera_id must be one of office-cam-01 through office-cam-04")
+    if not _CAMERA_ID_PATTERN.fullmatch(camera_id):
+        raise P04CalibrationError("camera_id must be a stable lowercase scene-camera identifier")
 
 
 def _typed_object(value: Any, field_name: str) -> dict[str, Any]:

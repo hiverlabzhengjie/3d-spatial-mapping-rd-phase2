@@ -18,10 +18,9 @@
       "platform": "Ubuntu 24.04 on WSL2",
       "python_executable": "~/.local/share/spatial-mapping-phase2/p00-wsl-py311/bin/python",
       "environment_root": "~/.local/share/spatial-mapping-phase2/p00-wsl-py311",
-      "artifact_root": "/mnt/x/3D-Spatial-Mapping-Phase2",
+      "artifact_root": "/mnt/d/3D-Spatial-Mapping-Phase2",
       "status": "verified_noncanonical",
       "selection_reason": "Retained comparative evidence; native Windows is selected for continued P00 work."
     }
   ]
 }
-

@@ -46,13 +46,13 @@ from spatial_mapping_phase2.xr02_supervision import (
 )
 from spatial_mapping_phase2.xr02_wp1 import identify_file, summarize_ms
 
-P06_SHA256 = "d3c1bfd314a865270a9d9352efd33cd61a470bdc8829a084d5a0f2996f4aa8e4"
-P07_SHA256 = "df883eedae46f48aab9c84a86b8e2398fa44b37c2664cac4792d21e5a7d8ef51"
-P08_MANIFEST_SHA256 = "1462f65068156b4ffe611fd705b7ae62468fe8b665cd5eebae8ed96132adc399"
-P08_FLOOR_SHA256 = "1079e8573938c19bd668a73c3bb7706c684fd661a36c95db85eb64592cb25eb0"
-P08_STATIC_RRD_SHA256 = "0ff18cc9b2e5b694a94df8addd13595cfa1a8d09e116da5a2de64f6e88a0415e"
-YOLO_SHA256 = "0ebbc80d4a7680d14987a577cd21342b65ecfd94632bd9a8da63ae6417644ee1"
-OSNET_SHA256 = "6f57607fed9f502b9efed546108132ee715df5a5b6e6932c6269bacb47f59f99"
+P06_SHA256 = os.environ.get("XR02_P06_SHA256", "0" * 64)
+P07_SHA256 = os.environ.get("XR02_P07_SHA256", "0" * 64)
+P08_MANIFEST_SHA256 = os.environ.get("XR02_P08_MANIFEST_SHA256", "0" * 64)
+P08_FLOOR_SHA256 = os.environ.get("XR02_P08_FLOOR_SHA256", "0" * 64)
+P08_STATIC_RRD_SHA256 = os.environ.get("XR02_P08_STATIC_RRD_SHA256", "0" * 64)
+YOLO_SHA256 = os.environ.get("XR02_YOLO_SHA256", "0" * 64)
+OSNET_SHA256 = os.environ.get("XR02_OSNET_SHA256", "0" * 64)
 
 
 @dataclass(frozen=True, slots=True)

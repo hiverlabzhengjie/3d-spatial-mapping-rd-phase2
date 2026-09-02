@@ -1,0 +1,22 @@
+{
+  "schema_version": "xr02-worker-deployment-v1",
+  "operator_state": "../runtime/cache/workflow-scene/operator-state.json",
+  "p06_calibration_manifest": "../runtime/accepted/p06/input-manifest.json",
+  "p07_geometry_manifest": "../runtime/accepted/p07/frustum-preview-manifest.json",
+  "p08_floor_manifest": "../runtime/accepted/p08/floor-completion-manifest.json",
+  "p08_floor": "../runtime/accepted/p08/authoritative_floor_plane.npz",
+  "detector_model": "../runtime/model-weights/yolo11n.pt",
+  "reid_model": "../runtime/model-weights/osnet_x0_25_msmt17.pt",
+  "environment_file": "../.env",
+  "camera_policy": "../runtime/cache/workflow-scene/camera-policy.sqlite3",
+  "ultralytics_config": "../runtime/cache/ultralytics",
+  "wp2_overlay": "../runtime/xr02-wp2-overlay",
+  "hashes": {
+    "p06": "0000000000000000000000000000000000000000000000000000000000000000",
+    "p07": "0000000000000000000000000000000000000000000000000000000000000000",
+    "p08_floor_manifest": "0000000000000000000000000000000000000000000000000000000000000000",
+    "p08_floor": "0000000000000000000000000000000000000000000000000000000000000000",
+    "detector": "0000000000000000000000000000000000000000000000000000000000000000",
+    "reid": "0000000000000000000000000000000000000000000000000000000000000000"
+  }
+}

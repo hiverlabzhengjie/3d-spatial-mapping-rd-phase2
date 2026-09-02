@@ -44,19 +44,22 @@
 
         <section class="setup-step">
           <div class="step-title"><span>1</span><h3>Scale controls</h3></div>
-          <p>Draw between two known endpoints, then enter the real distance. One control enables provisional XY; more controls expose scan-scale disagreement.</p>
+          <p>Add exactly two independent physical checks: one horizontal and one vertical on the plan. Their pixels-per-metre values are calculated separately and their mean defines metric XY.</p>
           <div class="field-grid">
-            <label>Control ID<input id="scaleId" value="top-dimension"></label>
-            <label>Distance (m)<input id="scaleDistance" type="number" min="0.001" step="0.001" placeholder="4.498"></label>
+            <label>Plan direction<select id="scaleAxis"><option value="horizontal">Horizontal</option><option value="vertical">Vertical</option></select></label>
+            <label>Control ID<input id="scaleId" value="horizontal-scale"></label>
           </div>
-          <label>Meaning<input id="scaleMeaning" value="printed dimension between permanent endpoints"></label>
           <div class="field-grid">
+            <label>Measured physical distance (m)<input id="scaleDistance" type="number" min="0.001" step="0.001" placeholder="4.498"></label>
             <label>Uncertainty (m)<input id="scaleUncertainty" type="number" min="0" step="0.001" placeholder="e.g. 0.020"></label>
-            <label>Source<select id="scaleSource"><option value="printed-dimension">Printed dimension</option><option value="physical-check">Physical check</option></select></label>
           </div>
-          <button id="drawScaleButton" class="button tool">Draw scale line</button>
+          <label>Physical reference<input id="scaleMeaning" value="horizontal distance between permanent endpoints"></label>
+          <div class="field-grid">
+            <label>Source<select id="scaleSource"><option value="physical-check">Physical site check</option><option value="printed-dimension">Verified printed dimension</option></select></label>
+          </div>
+          <button id="drawScaleButton" class="button tool">Draw horizontal scale</button>
           <div id="scaleList" class="compact-list"></div>
-          <div id="scaleSummary" class="metric-box muted">No metric scale yet</div>
+          <div id="scaleSummary" class="metric-box muted">Horizontal and vertical checks required</div>
         </section>
 
         <section class="setup-step">

@@ -6,7 +6,7 @@ This file is an engineering disclosure, not legal advice.
 
 Project-owned source in this repository is released under the GNU Affero General Public License,
 version 3. The repository itself is the public corresponding-source location for the published
-P09/XR02 application variant. The XR02 browser console includes a link back to this source.
+console and tracking variants. Browser surfaces include a link back to this source.
 
 Private RTSP credentials, client media, facility coordinates, accepted local calibration/geometry
 artifacts, model weights, recordings, embeddings and runtime outputs are data—not part of this
@@ -25,7 +25,7 @@ configuration rooted at `SPATIAL_MAPPING_ARTIFACT_ROOT` rather than owner-specif
 | Rerun | `0.22.1` | Apache-2.0; external SDK/viewer |
 | PyAV | `16.0.1` | BSD-3-Clause; external package |
 | TrackStudio | `v0.1.0`, commit `69d9d8131968afe70e537990108e5e5c1afa88b8` | Apache-2.0; optional reference, not an operational dependency |
-| DA3 source/model | upstream project; Nested checkpoint used privately | Upstream terms apply; no source modifications or weights redistributed here |
+| DA3 source/model | upstream project; Nested checkpoint used privately | CC BY-NC 4.0 for the recorded checkpoint; no source modifications or weights redistributed here; commercial use requires separate review |
 
 Upstream source and licence locations:
 

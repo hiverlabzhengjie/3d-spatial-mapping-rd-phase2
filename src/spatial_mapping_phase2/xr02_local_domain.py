@@ -58,6 +58,7 @@ class SceneContextKey:
     floor_sha256: str
     calibration_sha256: str
     facility_frame: str = FACILITY_FRAME
+    camera_policy_sha256: str | None = None
 
     def __post_init__(self) -> None:
         _require_identifier(self.scene_id, "scene_id")
@@ -69,6 +70,10 @@ class SceneContextKey:
         ):
             if not _SHA256.fullmatch(value):
                 raise XR02ContractError(f"{label} must be a lowercase SHA-256")
+        if self.camera_policy_sha256 is not None and not _SHA256.fullmatch(
+            self.camera_policy_sha256
+        ):
+            raise XR02ContractError("camera_policy_sha256 must be a lowercase SHA-256")
         if self.facility_frame != FACILITY_FRAME:
             raise XR02ContractError("XR02 WP2 must preserve the accepted facility frame")
 
@@ -77,7 +82,7 @@ class SceneContextKey:
         return _canonical_sha256(self.as_dict())
 
     def as_dict(self) -> dict[str, object]:
-        return {
+        value: dict[str, object] = {
             "scene_id": self.scene_id,
             "scene_epoch_id": self.scene_epoch_id,
             "geometry_sha256": self.geometry_sha256,
@@ -85,6 +90,9 @@ class SceneContextKey:
             "calibration_sha256": self.calibration_sha256,
             "facility_frame": self.facility_frame,
         }
+        if self.camera_policy_sha256 is not None:
+            value["camera_policy_sha256"] = self.camera_policy_sha256
+        return value
 
 
 @dataclass(frozen=True, slots=True)

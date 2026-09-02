@@ -20,6 +20,7 @@ from spatial_mapping_phase2.p09_projection import (
 from spatial_mapping_phase2.xr02_association import (
     AssociationConfig,
     SceneGlobalAssociator,
+    SceneTopology,
     office_topology,
 )
 from spatial_mapping_phase2.xr02_boxmot import (
@@ -37,7 +38,12 @@ from spatial_mapping_phase2.xr02_global_domain import (
     SignalProfile,
 )
 from spatial_mapping_phase2.xr02_global_journal import GlobalAssociationJournal
-from spatial_mapping_phase2.xr02_journal import EmbeddingStore, ObservationJournal
+from spatial_mapping_phase2.xr02_journal import (
+    EmbeddingRepository,
+    EmbeddingStore,
+    ObservationJournal,
+    VolatileEmbeddingStore,
+)
 from spatial_mapping_phase2.xr02_live_domain import AdoptedSceneSelection, XR02LiveContractError
 from spatial_mapping_phase2.xr02_local_domain import (
     FrameKey,
@@ -174,6 +180,9 @@ class XR02LivePipeline:
         model: LiveModelProfile,
         evidence_root: Path,
         cadence: HigherCadenceProfile | None = None,
+        topology: SceneTopology | None = None,
+        *,
+        durable_evidence: bool = True,
     ) -> None:
         import torch
         from boxmot import Detector, ReIDModel  # type: ignore[import-not-found]
@@ -210,7 +219,12 @@ class XR02LivePipeline:
             camera_id: FusedLiveFrameRectifier(calibration)
             for camera_id, calibration in calibrations.items()
         }
-        embedding_store = EmbeddingStore(evidence_root, "osnet-x0.25-msmt17")
+        self._durable_evidence = durable_evidence
+        embedding_store: EmbeddingRepository = (
+            EmbeddingStore(evidence_root, "osnet-x0.25-msmt17")
+            if durable_evidence
+            else VolatileEmbeddingStore("osnet-x0.25-msmt17")
+        )
         self._embedding_store = embedding_store
         self._projection = P08ProjectionAdapter(calibrations, floor)
         self._appearance_quality_policy = CropQualityPolicy()
@@ -226,13 +240,20 @@ class XR02LivePipeline:
         }
         self._capture_generations = {camera_id: 0 for camera_id in calibrations}
         self._tracker_epochs = {camera_id: 0 for camera_id in calibrations}
-        self._local_journal = ObservationJournal(evidence_root / "wp4-local-observations.jsonl")
-        self._global_journal = GlobalAssociationJournal(
-            evidence_root / "wp4-global-association.jsonl"
+        self._local_journal = (
+            ObservationJournal(evidence_root / "wp4-local-observations.jsonl")
+            if durable_evidence
+            else None
         )
+        self._global_journal = (
+            GlobalAssociationJournal(evidence_root / "wp4-global-association.jsonl")
+            if durable_evidence
+            else None
+        )
+        self._topology = topology or office_topology()
         self._associator = SceneGlobalAssociator(
             scene.scene.context_sha256,
-            office_topology(),
+            self._topology,
             SignalProfile.COMBINED,
             AssociationConfig.continuity_live(),
         )
@@ -257,6 +278,9 @@ class XR02LivePipeline:
             "local_tracker_profile": self._profile.profile_id,
             "local_tracker_kwargs": self._profile.tracker_kwargs,
             "global_profile": self._associator.profile_id,
+            "overlap_edges": [list(edge) for edge in self._topology.overlap_edges],
+            "transition_edges": [list(edge) for edge in self._topology.transition_edges],
+            "camera_policy_sha256": self.scene.scene.camera_policy_sha256,
             "detector_sha256": self.model.detector_sha256,
             "reid_sha256": self.model.reid_sha256,
             "cpu_fallback_allowed": False,
@@ -265,7 +289,12 @@ class XR02LivePipeline:
             "appearance_for_global_association": (
                 "fresh quality-gated in-memory embedding every admitted local frame"
             ),
-            "appearance_persistence": "bounded 2 Hz durable gallery/evidence micro-batches",
+            "appearance_persistence": (
+                "bounded 2 Hz durable gallery/evidence micro-batches"
+                if self._durable_evidence
+                else "bounded volatile in-memory cache; no appearance gallery"
+            ),
+            "durable_evidence": self._durable_evidence,
             "rectification_profile": FusedLiveFrameRectifier.profile_id,
             "capture_generations": dict(sorted(self._capture_generations.items())),
             "tracker_epochs": dict(sorted(self._tracker_epochs.items())),
@@ -389,7 +418,7 @@ class XR02LivePipeline:
             )
             for observation in observations:
                 local_observations.append(observation)
-                if observation.embedding is not None:
+                if observation.embedding is not None and self._durable_evidence:
                     appearance_persisted += 1
                 fresh_embedding = self._fresh_embedding_evidence(observation, embeddings)
                 if fresh_embedding is not None:
@@ -416,7 +445,8 @@ class XR02LivePipeline:
             self._last_frame_ids[camera_id] = captured.identity.frame_id
             self._processed_sequences[camera_id] += 1
 
-        self._pending_local_journal_observations.extend(local_observations)
+        if self._durable_evidence:
+            self._pending_local_journal_observations.extend(local_observations)
 
         association_updated = cadence.association_due
         association_ms = 0.0
@@ -432,7 +462,8 @@ class XR02LivePipeline:
                 pending,
             )
             association_ms = (time.perf_counter() - before) * 1000.0
-            self._pending_global_journal_results.append(association)
+            if self._durable_evidence:
+                self._pending_global_journal_results.append(association)
             self._pending_association_observations.clear()
             self._latest_association = association
             association_tick_index: int | None = self._association_tick_index
@@ -469,7 +500,7 @@ class XR02LivePipeline:
             pending_association_observations=len(self._pending_association_observations),
             appearance_persisted_count=appearance_persisted,
             appearance_fresh_count=appearance_fresh,
-            evidence_flush_due=cadence.appearance_persistence_due,
+            evidence_flush_due=cadence.appearance_persistence_due and self._durable_evidence,
             rectification_ms=rectification_ms,
         )
         self._tick_index += 1
@@ -567,10 +598,10 @@ class XR02LivePipeline:
         return digest, tuple(float(value) for value in normalized)
 
     def _flush_evidence(self) -> None:
-        if self._pending_local_journal_observations:
+        if self._pending_local_journal_observations and self._local_journal is not None:
             self._local_journal.append_batch(tuple(self._pending_local_journal_observations))
             self._pending_local_journal_observations.clear()
-        if self._pending_global_journal_results:
+        if self._pending_global_journal_results and self._global_journal is not None:
             self._global_journal.append_batch(tuple(self._pending_global_journal_results))
             self._pending_global_journal_results.clear()
 

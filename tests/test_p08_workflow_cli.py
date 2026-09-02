@@ -114,6 +114,98 @@ def test_console_rejects_non_localhost_bind_before_loading_workspace(
     assert "may bind only to localhost" in result.stderr
 
 
+def test_console_profile_preflight_does_not_start_or_mutate_workspace(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    scene = workspace / "scene.json"
+    scene.write_text("{}", encoding="utf-8")
+    profile = tmp_path / "console-profile.json"
+    profile.write_text(
+        json.dumps(
+            {
+                "schema_version": "phase2-console-profile-v1",
+                "workspace_dir": "workspace",
+                "host": "127.0.0.1",
+                "port": 8088,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = _run(str(CONSOLE), "--profile", str(profile), "--preflight")
+
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout)["ready"] is True
+    assert sorted(workspace.iterdir()) == [scene]
+
+
+def test_cli_camera_policy_apply_matches_web_hash(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    scene_config = tmp_path / "scene.json"
+    scene_config.write_text(json.dumps(_scene_config(tmp_path)), encoding="utf-8")
+    assert (
+        _run(
+            str(CLI),
+            "--workspace-dir",
+            str(workspace),
+            "create-scene",
+            "--scene-config",
+            str(scene_config),
+        ).returncode
+        == 0
+    )
+    policy_file = tmp_path / "camera-policy.json"
+    policy_file.write_text(
+        json.dumps(
+            {
+                "intrinsic_groups": [
+                    {
+                        "group_id": "lens-a",
+                        "lens_model": "Model A",
+                        "camera_ids": ["camera-1", "camera-2", "camera-3"],
+                    }
+                ],
+                "overlap_pair_reviews": [
+                    {
+                        "camera_id_a": left,
+                        "camera_id_b": right,
+                        "verdict": "no_overlap",
+                    }
+                    for left, right in (
+                        ("camera-1", "camera-2"),
+                        ("camera-1", "camera-3"),
+                        ("camera-2", "camera-3"),
+                    )
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    applied = _run(
+        str(CLI),
+        "--workspace-dir",
+        str(workspace),
+        "camera-policy-apply",
+        "--action-id",
+        "cli-camera-policy-first",
+        "--policy-file",
+        str(policy_file),
+    )
+    assert applied.returncode == 0, applied.stderr
+    cli_hash = json.loads(applied.stdout)["policy"]["policy_sha256"]
+
+    service = WorkflowService(SceneWorkspaceRepository(workspace), BoundedJobManager())
+    try:
+        client = TestClient(create_p08_workflow_app(service))
+        assert (
+            client.get("/api/camera-policy").json()["active_policy"]["policy_sha256"] == cli_hash
+        )
+    finally:
+        service.close()
+
+
 def test_cli_deletion_impact_enforces_baseline_retention_for_single_and_batch(
     tmp_path: Path,
 ) -> None:

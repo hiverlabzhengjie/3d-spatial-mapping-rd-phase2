@@ -159,7 +159,8 @@ def resolve_adopted_scene(
     operator_state_path: Path,
     p06_path: Path,
     p07_path: Path,
-    p08_floor_manifest_path: Path,
+    p08_floor_manifest_path: Path | None,
+    camera_policy_sha256: str | None = None,
 ) -> AdoptedSceneSelection:
     """Resolve and hash the current approved P08 selection without modifying its catalog."""
 
@@ -172,6 +173,11 @@ def resolve_adopted_scene(
     geometry = identify_file(geometry_path, _required_string(operator, "geometry_source_sha256"))
     floor_root = Path(_required_string(operator, "current_floor_output_directory"))
     floor = identify_file(floor_root / "authoritative_floor_plane.npz")
+    current_floor_manifest = floor_root / "floor-completion-manifest.json"
+    if not current_floor_manifest.is_file():
+        if p08_floor_manifest_path is None:
+            raise XR02LiveContractError("current floor-completion manifest is unavailable")
+        current_floor_manifest = p08_floor_manifest_path
     static_entry = _selected_runtime_entry(operator, floor_id)
     static_rerun = identify_file(
         Path(_required_string(static_entry, "path")),
@@ -179,14 +185,16 @@ def resolve_adopted_scene(
     )
     p06 = identify_file(p06_path)
     p07 = identify_file(p07_path)
-    p08_manifest = identify_file(p08_floor_manifest_path)
-    scene_epoch = f"office-{geometry.sha256[:8]}-{floor.sha256[:8]}"
+    p08_manifest = identify_file(current_floor_manifest)
+    policy_epoch = "" if camera_policy_sha256 is None else f"-{camera_policy_sha256[:8]}"
+    scene_epoch = f"office-{geometry.sha256[:8]}-{floor.sha256[:8]}{policy_epoch}"
     scene = build_scene_context(
         scene_id="office",
         scene_epoch_id=scene_epoch,
         geometry_sha256=geometry.sha256,
         floor_sha256=floor.sha256,
         calibration_authority={"p06": p06.sha256, "p07": p07.sha256},
+        camera_policy_sha256=camera_policy_sha256,
     )
     return AdoptedSceneSelection(
         scene=scene,

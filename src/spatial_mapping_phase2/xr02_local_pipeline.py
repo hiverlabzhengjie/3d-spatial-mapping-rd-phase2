@@ -21,7 +21,7 @@ from spatial_mapping_phase2.p09_tracking_domain import (
     PersonDetection,
 )
 from spatial_mapping_phase2.xr02_boxmot import LocalTrackRows
-from spatial_mapping_phase2.xr02_journal import EmbeddingStore, XR02JournalError
+from spatial_mapping_phase2.xr02_journal import EmbeddingRepository, XR02JournalError
 from spatial_mapping_phase2.xr02_local_domain import (
     CropQuality,
     EmbeddingReference,
@@ -70,6 +70,7 @@ def build_scene_context(
     geometry_sha256: str,
     floor_sha256: str,
     calibration_authority: dict[str, str],
+    camera_policy_sha256: str | None = None,
 ) -> SceneContextKey:
     """Bind a scene epoch to exact immutable calibration source identities."""
 
@@ -83,6 +84,7 @@ def build_scene_context(
         geometry_sha256=geometry_sha256,
         floor_sha256=floor_sha256,
         calibration_sha256=calibration_sha256,
+        camera_policy_sha256=camera_policy_sha256,
     )
 
 
@@ -145,7 +147,7 @@ class LocalObservationAssembler:
         self,
         tracker_profile: str,
         projection: P08ProjectionAdapter,
-        embedding_store: EmbeddingStore,
+        embedding_store: EmbeddingRepository,
         quality_policy: CropQualityPolicy | None = None,
         cadence: EmbeddingCadence | None = None,
     ) -> None:

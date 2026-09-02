@@ -13,13 +13,13 @@ from typing import Any, Protocol
 
 from spatial_mapping_phase2.p01_observability import (
     CAMERA_ENDPOINT_KEYS,
-    CAMERA_IDS,
-    LocalRtspEndpoint,
+    validate_scene_rtsp_endpoint,
 )
 from spatial_mapping_phase2.p02_interactive_registration import (
     InteractiveRegistrationError,
     InteractiveRegistrationState,
     PlanMetadata,
+    ScaleAxis,
     build_interactive_export,
     empty_registration,
 )
@@ -76,10 +76,14 @@ class P02RegistrationService:
         workspace: Path,
         secret_file: Path,
         renderer: PlanRenderer | None = None,
+        camera_endpoint_keys: dict[str, str] | None = None,
     ) -> None:
         self.workspace = workspace.resolve()
         self.secret_file = secret_file.resolve()
         self.renderer = renderer or PyMuPDFPlanRenderer()
+        self.camera_endpoint_keys = dict(camera_endpoint_keys or CAMERA_ENDPOINT_KEYS)
+        if not self.camera_endpoint_keys:
+            raise InteractiveRegistrationError("at least one camera is required")
         self._lock = threading.RLock()
         self._state_path = self.workspace / "state.json"
         self._sources_dir = self.workspace / "sources"
@@ -139,7 +143,8 @@ class P02RegistrationService:
                     1,
                     rendered.image_width_pixels,
                     rendered.image_height_pixels,
-                )
+                ),
+                tuple(self.camera_endpoint_keys),
             )
             self._write_state(state)
             return state
@@ -150,6 +155,12 @@ class P02RegistrationService:
         with self._lock:
             current = self.load_state()
             candidate = InteractiveRegistrationState.from_dict(payload)
+            if tuple(camera.camera_id for camera in candidate.cameras) != tuple(
+                self.camera_endpoint_keys
+            ):
+                raise InteractiveRegistrationError(
+                    "camera roster cannot be changed through registration state save"
+                )
             if candidate.revision != current.revision:
                 raise InteractiveRegistrationError(
                     f"stale revision {candidate.revision}; current revision is {current.revision}"
@@ -173,25 +184,27 @@ class P02RegistrationService:
     def endpoint_configuration(self) -> dict[str, bool]:
         values = self._read_secret_values()
         return {
-            camera_id: bool(values.get(CAMERA_ENDPOINT_KEYS[camera_id], "").strip())
-            for camera_id in CAMERA_IDS
+            camera_id: bool(values.get(endpoint_key, "").strip())
+            for camera_id, endpoint_key in self.camera_endpoint_keys.items()
         }
 
     def load_endpoint(self, camera_id: str) -> str | None:
         """Return one camera's local secret only to the dedicated localhost endpoint editor."""
 
-        if camera_id not in CAMERA_IDS:
+        if camera_id not in self.camera_endpoint_keys:
             raise InteractiveRegistrationError("unknown camera_id")
-        endpoint = self._read_secret_values().get(CAMERA_ENDPOINT_KEYS[camera_id], "").strip()
+        endpoint = self._read_secret_values().get(
+            self.camera_endpoint_keys[camera_id], ""
+        ).strip()
         return endpoint or None
 
     def save_endpoint(self, camera_id: str, endpoint_url: str) -> None:
         """Validate and store one RTSP URL locally without returning or logging its value."""
 
-        if camera_id not in CAMERA_IDS:
+        if camera_id not in self.camera_endpoint_keys:
             raise InteractiveRegistrationError("unknown camera_id")
-        endpoint_key = CAMERA_ENDPOINT_KEYS[camera_id]
-        LocalRtspEndpoint(camera_id, endpoint_key, endpoint_url)
+        endpoint_key = self.camera_endpoint_keys[camera_id]
+        validate_scene_rtsp_endpoint(camera_id, endpoint_key, endpoint_url)
         if "\n" in endpoint_url or "\r" in endpoint_url:
             raise InteractiveRegistrationError("RTSP URL cannot contain a line break")
         with self._lock:
@@ -203,21 +216,27 @@ class P02RegistrationService:
                 if self.secret_file.exists()
                 else []
             )
-            camera_keys = set(CAMERA_ENDPOINT_KEYS.values())
+            camera_keys = set(self.camera_endpoint_keys.values())
             preserved = [
                 line
                 for line in existing_lines
                 if not any(line.startswith(f"{key}=") for key in camera_keys)
             ]
             preserved.extend(
-                f"{key}={values[key]}" for key in CAMERA_ENDPOINT_KEYS.values() if values.get(key)
+                f"{key}={values[key]}"
+                for key in self.camera_endpoint_keys.values()
+                if values.get(key)
             )
             self._atomic_write_text(self.secret_file, "\n".join(preserved).rstrip() + "\n")
 
     def export_snapshot(self) -> tuple[Path, dict[str, Any]]:
         with self._lock:
             state = self.load_state()
-            payload = build_interactive_export(state, self.endpoint_configuration())
+            payload = build_interactive_export(
+                state,
+                self.endpoint_configuration(),
+                self.camera_endpoint_keys,
+            )
             timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
             path = self._exports_dir / f"facility-registration-r{state.revision}-{timestamp}.json"
             self._atomic_write_json(path, payload)
@@ -293,6 +312,9 @@ def build_derived_summary(
         }
     return {
         "pixels_per_metre": state.pixels_per_metre,
+        "horizontal_pixels_per_metre": state.pixels_per_metre_for_axis(ScaleAxis.HORIZONTAL),
+        "vertical_pixels_per_metre": state.pixels_per_metre_for_axis(ScaleAxis.VERTICAL),
+        "missing_scale_axes": [axis.value for axis in state.missing_scale_axes],
         "scale_spread_fraction": state.scale_spread_fraction,
         "frame_ready": state.frame is not None and state.pixels_per_metre is not None,
         "cameras": cameras,

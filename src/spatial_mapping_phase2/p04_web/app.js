@@ -481,6 +481,12 @@ async function exportSnapshot() {
     link.download = payload.filename;
     link.click();
     URL.revokeObjectURL(link.href);
+    if (window.parent !== window) {
+      window.parent.postMessage(
+        { type: "p04-linked-points-exported", camera_id: payload.export.camera_id },
+        window.location.origin,
+      );
+    }
     toast(`Exported ${payload.filename}`);
   } catch (error) {
     toast(error.message, true);
